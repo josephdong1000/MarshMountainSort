@@ -1,0 +1,10 @@
+/*bins/*
+/output*/*
+/rawtxts/*
+/rhds/*
+/slurms/*
+/sortings/*
+/vids/*
+/.*/
+/slurm-*
+/~$*

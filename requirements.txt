@@ -1,0 +1,15 @@
+ffmpeg
+ffmpeg_python
+matplotlib==3.8
+mountainsort5
+numba
+numpy
+pandas
+probeinterface
+scipy
+seaborn
+setuptools
+spikeinterface
+statannotations
+ipykernel
+openpyxl

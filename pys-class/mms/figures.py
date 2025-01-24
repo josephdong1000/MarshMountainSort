@@ -7,7 +7,7 @@
 # 
 # Run after executing core modules. Will pull information from cached sorting and recording files in `sortings/`
 
-# In[12]:
+# In[141]:
 
 
 import glob
@@ -65,12 +65,12 @@ from mms import constants
 from mms.parser import FolderPathParser
 
 
-# In[13]:
+# In[142]:
 
 
-# REVIEW this can kind of just be a static class with states
-# But it is used as an instance class
 class DepthSheetReader():
+    # REVIEW this can kind of just be a static class with states
+    # But it is used as an instance class
 
     df_depths:pd.DataFrame = None
     df_optdepth:pd.DataFrame = None
@@ -282,19 +282,21 @@ class DepthSheetReader():
     
 
 
-# In[17]:
+# In[144]:
 
 
 class IExperimentAnalyzer(ABC):
     EXTENSION_PARAMS = {
         'random_spikes' : {'max_spikes_per_unit':1000},
-        'waveforms' : dict({'ms_before':1.0, 'ms_after':2.0}, **constants.FAST_JOB_KWARGS),
+        # 'waveforms' : dict({'ms_before':1.0, 'ms_after':2.0}, **constants.FAST_JOB_KWARGS),
+        'waveforms' : {'ms_before':1.0, 'ms_after':2.0},
         'templates' : {'ms_before':1.0, 'ms_after':2.0},
         # 'spike_locations' : {'ms_before':1.0, 'ms_after':2.0, 'method':'center_of_mass'},
         # 'spike_locations' : {'ms_before':1.0, 'ms_after':2.0, 'method':'monopolar_triangulation'},
         # 'principal_components' : {'mode':'concatenated'},
         'principal_components' : {'mode':'by_channel_local'},
-        'spike_amplitudes' : constants.FAST_JOB_KWARGS,
+        # 'spike_amplitudes' : constants.FAST_JOB_KWARGS,
+        'spike_amplitudes' : {},
         'noise_levels' : {},
     }
     # QUALITY_METRIC_FEATURES = sqm.get_quality_metric_list() + sqm.get_quality_pca_metric_list()
@@ -336,8 +338,9 @@ class IExperimentAnalyzer(ABC):
                 dropcols.extend(drop_extra_cols)
             if drop_extra_cols_substr is not None:
                 matches = [[x for x in df.columns if substr in x] for substr in drop_extra_cols_substr]
-                matches = np.array(matches)
-                matches = matches.flatten('C')
+                matches = [x for xs in matches for x in xs]
+                # matches = np.array(matches)
+                # matches = matches.flatten('C')
                 dropcols.extend(matches)
 
             df = df.drop(dropcols, axis=1, errors='ignore')
@@ -354,7 +357,8 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
     # FIXME i have a feeling these other stats are also good, but the spikeinterface settings need changing    
 
     def __init__(self, base_folder: str, dsr:DepthSheetReader, sortdir_name: str = 'sortings', 
-                 truncate: bool = False, verbose: bool = True, omit: list[str] = ...) -> None:
+                 truncate: bool = False, verbose: bool = True, omit: list[str] = ...,
+                 **job_kwargs) -> None:
         
         super().__init__(base_folder, '', '', sortdir_name, truncate, verbose, omit)
         self._dsr = dsr
@@ -363,7 +367,7 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
 
         self.df_all_units = self.__animal_to_best_depth_df.copy()
         if truncate:
-            self.df_all_units = self.df_all_units.sample(5)
+            self.df_all_units = self.df_all_units.sample(5, random_state=42)
 
         self.df_all_units['sa'] = \
             self.df_all_units.apply(
@@ -375,7 +379,7 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
             )
         for k,kwargs in ExperimentFeatureExtractor.EXTENSION_PARAMS.items():
             self.df_all_units.apply(
-                lambda row: row['sa'].compute_one_extension(extension_name=k, **kwargs) if row['sa'] is not None else None,
+                lambda row: row['sa'].compute_one_extension(extension_name=k, **(kwargs | job_kwargs)) if row['sa'] is not None else None,
                 axis=1
             )
         self.df_all_units['n_units'] = self.df_all_units.apply(
@@ -482,10 +486,54 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
             self.df_all_units = df
         return df
     
-    def remove_outliers(self, mode: Literal['iqr', 'std'] = 'iqr', iqr_mult:float = 1.5, std_mult:float = 3, in_place=True, df: pd.DataFrame=None):
+    def remove_outliers(self, mode: Literal['iqr', 'std'] = 'iqr', iqr_mult:float = 1.5, std_mult:float = 3, 
+                        ignore_cols: list[str]=['num_spikes', 'isi_violations_count', 'rp_violations'], 
+                        ignore_cols_substr: list[str]=['num_', 'mds_wave_'], 
+                        plot_rejects:bool = True,
+                        in_place=True, df: pd.DataFrame=None):
+        
+        # unit: 0 outliers
+        # num_spikes: 2 outliers
+        # firing_rate: 0 outliers
+        # presence_ratio: 1 outliers
+        # snr: 1 outliers # REVIEW should this be taken out?
+        # isi_violations_ratio: 1 outliers
+        # isi_violations_count: 1 outliers
+        # rp_contamination: 1 outliers
+        # rp_violations: 0 outliers
+        # amplitude_median: 1 outliers
+        # sync_spike_2: 0 outliers
+        # sync_spike_4: 0 outliers
+        # sync_spike_8: 0 outliers
+        # firing_range: 0 outliers
+        # sd_ratio: 0 outliers
+        # isolation_distance: 0 outliers
+        # l_ratio: 0 outliers
+        # d_prime: 0 outliers
+        # silhouette: 0 outliers
+        # nn_hit_rate: 0 outliers
+        # nn_miss_rate: 0 outliers
+        # peak_to_valley: 0 outliers
+        # peak_trough_ratio: 0 outliers
+        # half_width: 1 outliers
+        # repolarization_slope: 0 outliers
+        # recovery_slope: 0 outliers
+        # num_positive_peaks: 4 outliers # REVIEW should this be considered for outlier rejection?
+        # num_negative_peaks: 0 outliers # REVIEW same here
+        # exp_decay: 0 outliers
+        # spread: 0 outliers
+        # mds_wave_0: 0 outliers
+        # mds_wave_1: 0 outliers
+        # mds_wave_2: 0 outliers
+        # mds_wave_3: 0 outliers
+
         df = self.df_all_units if df is None else df
-        # TODO working on this
-        datacols = df.columns.difference(self.DO_NOT_EXPLODE_FEATURES + self.BAD_FEATURES, sort=False)
+        
+        ignore_cols = [] if ignore_cols is None else ignore_cols
+        # datacols = df.columns.difference(self.DO_NOT_EXPLODE_FEATURES + self.BAD_FEATURES + ignore_cols, sort=False)
+        # print(datacols)
+        datacols = self.get_df(drop_unit_unique_cols=True, drop_extra_cols=ignore_cols, drop_extra_cols_substr=ignore_cols_substr).columns
+
         match mode:
             case 'iqr':
                 dfiqr = df[datacols].quantile([0.25, 0.75])
@@ -501,12 +549,29 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
                 dfrange.loc['max_bound'] = dfrange['mean'] + std_mult * dfrange['std']
             case _:
                 raise ValueError(f'Invalid mode {mode}')
+            
+        df['reject'] = False
         for col in datacols:
             min_val = dfrange.loc['min_bound'][col]
             max_val = dfrange.loc['max_bound'][col]
-            dftemp = df[(df[col] >= min_val) & (df[col] <= max_val)]
-            print(f'{col}: {df.index.size - dftemp.index.size} outliers')
-            df = dftemp
+            
+            prev_reject = df['reject']
+            df['reject'] = df['reject'] | (df[col] < min_val) | (df[col] > max_val)
+            n_new_reject = df['reject'].sum() - prev_reject.sum()
+            print(f'{col}: {n_new_reject} outliers')
+
+            # ANCHOR fixing this
+            if plot_rejects and n_new_reject > 0:
+                sas = df.loc[df['reject'] != prev_reject, ['sa', 'unit']]
+                fig, ax = plt.subplots(1, n_new_reject, figsize=(n_new_reject, 1), squeeze=False)
+                for i, (index, row) in enumerate(sas.iterrows()):
+                    sw.plot_unit_waveforms_density_map(row['sa'], use_max_channel=True, unit_ids=[row['unit']], ax=ax[0, i])
+                    ax[0, i].set_facecolor('black')
+                    ax[0, i].set_ylabel('')
+                    ax[0, i].set_ylabel("uV")
+                    # ax[i].set_ybound(ybound_heatmap[0], ybound_heatmap[1])
+                fig.suptitle(col, y=1.05)
+            
         if in_place:
             self.df_all_units = df
         return df
@@ -521,10 +586,12 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
             for f in feature_substrs:
                 allfeats.extend([x for x in features if f in x])
             print(f"Features used for clustering: {allfeats}")
-            features = allfeats + self.UNIT_UNIQUE_FEATURES
+            features = allfeats + self.UNIT_UNIQUE_FEATURES + ['reject']
         df2 = df.drop(df.columns.difference(features), axis=1, errors='ignore')
         df2 = df2.dropna(axis=0, subset=df2.columns.difference(self.DO_NOT_EXPLODE_FEATURES))
-        
+        if 'reject' in df2.columns:
+            df2 = df2[~df2['reject']]
+
         df3 = df2.drop(self.UNIT_UNIQUE_FEATURES, axis=1, errors='ignore')
         df3_std = StandardScaler().fit_transform(df3)
 
@@ -550,7 +617,7 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
 
 
 
-# In[18]:
+# In[145]:
 
 
 class ExperimentPlotter(core.IAnimalAnalyzer, IExperimentAnalyzer):
@@ -567,42 +634,41 @@ class ExperimentPlotter(core.IAnimalAnalyzer, IExperimentAnalyzer):
             self.df_all_units = self.df_all_units.sample(10)
 
 
-    def plot_pca(self, features:list[str]=None):
-        # REVIEW a lot of boilerplate code. Think about abstracting
-        df_pca = self.get_df(drop_nan_rows=True, drop_unit_unique_cols=True, drop_extra_cols=['cluster'])
+    def __get_clusterdf_clusterids_colorvec(self, features:list[str]=None, random_state:int=None):
+        df = self.get_df(drop_nan_rows=True, drop_unit_unique_cols=True, drop_extra_cols=['cluster'])
         if features is not None:
-            df_pca = df_pca.drop(df_pca.columns.difference(features), axis=1)
+            df = df.drop(df.columns.difference(features), axis=1)
+        if 'reject' in df.columns:
+            df = df[~df['reject']]
             
         df_clusters = self.get_df(drop_nan_rows=True)
         cluster_ids = df_clusters["cluster"].to_numpy(int)
         colorvec = [f'C{int(x)}' for x in df_clusters['cluster']]
+        return df, cluster_ids, colorvec
 
-        df_pca = StandardScaler().fit_transform(df_pca)
-        pca = PCA(n_components=2)
-        pcs = pca.fit_transform(df_pca)
-        
-        pc1_vals = pcs[:, 0]
-        pc2_vals = pcs[:, 1]
-        fig, ax = plt.subplots(1, 1)
-        for i in range(pcs.shape[0]):
-            ax.scatter(pc1_vals[i], pc2_vals[i], c=colorvec[i], label=f'Cluster {cluster_ids[i]}')
+    def __aggregate_and_show_legend(self, ax):
         handles, labels = ax.get_legend_handles_labels()
         by_label = dict(zip(labels, handles))
         plt.legend(by_label.values(), by_label.keys(), bbox_to_anchor=[1.05, 0.5], loc='center left')
 
+    def plot_pca(self, features:list[str]=None):
+        df_pca, cluster_ids, colorvec = self.__get_clusterdf_clusterids_colorvec()
+
+        df_pca = StandardScaler().fit_transform(df_pca)
+        pca = PCA(n_components=2)
+        X_transform = pca.fit_transform(df_pca)
+
+        fig, ax = plt.subplots(1, 1)
+        for i in range(X_transform.shape[0]):
+            ax.scatter(X_transform[i, 0], X_transform[i, 1], c=colorvec[i], label=f'Cluster {cluster_ids[i]}')
+
+        self.__aggregate_and_show_legend(ax)
+
         plt.title('PCA Plot')
         plt.show()
 
-
     def plot_mds(self, features:list[str]=None, random_state:int=None):
-
-        df_mds = self.get_df(drop_nan_rows=True, drop_unit_unique_cols=True, drop_extra_cols=['cluster'])
-        if features is not None:
-            df_mds = df_mds.drop(df_mds.columns.difference(features), axis=1)
-        
-        df_clusters = self.get_df(drop_nan_rows=True)
-        cluster_ids = df_clusters["cluster"].to_numpy(int)
-        colorvec = [f'C{int(x)}' for x in df_clusters['cluster']]
+        df_mds, cluster_ids, colorvec = self.__get_clusterdf_clusterids_colorvec()
 
         df_mds = StandardScaler().fit_transform(df_mds)
         mds = MDS(n_components=2, random_state=random_state)
@@ -611,23 +677,16 @@ class ExperimentPlotter(core.IAnimalAnalyzer, IExperimentAnalyzer):
         fig, ax = plt.subplots(1, 1)
         for i in range(X_transform.shape[0]):
             ax.scatter(X_transform[i, 0], X_transform[i, 1], c=colorvec[i], label=f'Cluster {cluster_ids[i]}')
-        handles, labels = ax.get_legend_handles_labels()
-        by_label = dict(zip(labels, handles))
-        plt.legend(by_label.values(), by_label.keys(), bbox_to_anchor=[1.05, 0.5], loc='center left')
+
+        self.__aggregate_and_show_legend(ax)
 
         plt.title('MDS Plot')
         plt.show()
 
     def plot_mds_waveforms(self, features:list[str]=None, width=2, height_mult=0.1, random_state:int=None):
+        df_mds, cluster_ids, colorvec = self.__get_clusterdf_clusterids_colorvec()
 
-        df_mds = self.get_df(drop_nan_rows=True, drop_unit_unique_cols=True, drop_extra_cols=['cluster'])
-        if features is not None:
-            df_mds = df_mds.drop(df_mds.columns.difference(features), axis=1)
-        
-        df_clusters = self.get_df(drop_nan_rows=True)
-        cluster_ids = df_clusters['cluster'].to_numpy(int)
-        colorvec = [f'C{int(x)}' for x in df_clusters['cluster']]
-        waveforms = np.array(df_clusters['waveform'].tolist())
+        waveforms = np.array(self.get_df(drop_nan_rows=True)['waveform'].tolist())
         waveforms *= height_mult
         xvals = np.linspace(-width/2, width/2, waveforms.shape[1])
 
@@ -639,16 +698,14 @@ class ExperimentPlotter(core.IAnimalAnalyzer, IExperimentAnalyzer):
         for i in range(X_transform.shape[0]):
             ax.plot(xvals + X_transform[i, 0], waveforms[i, :] + X_transform[i, 1], c=colorvec[i], label=f'Cluster {cluster_ids[i]}')
             
-        handles, labels = ax.get_legend_handles_labels()
-        by_label = dict(zip(labels, handles))
-        plt.legend(by_label.values(), by_label.keys(), bbox_to_anchor=[1.05, 0.5], loc='center left')
+        self.__aggregate_and_show_legend(ax)
 
         plt.title('MDS Plot with Waveforms')
         plt.show()
 
     def plot_cluster_waveforms(self):
-        df_waves = self.get_df(drop_nan_rows=True)
-        df_waves.groupby('cluster').apply(self.__df_cluster_groupby_func)
+        df_waves = self.get_df(drop_nan_rows=True, drop_nan_ignorecols=['cluster'])
+        df_waves.groupby('cluster', dropna=False).apply(self.__df_cluster_groupby_func)
 
     def __df_cluster_groupby_func(self, df: pd.DataFrame):
         n = df.index.size
@@ -669,29 +726,30 @@ class ExperimentPlotter(core.IAnimalAnalyzer, IExperimentAnalyzer):
                                     same_axis=True,
                                     plot_legend=False,
                                     ax=ax)
+            if row['reject']:
+                ax.set_facecolor('xkcd:red orange')
             ax.set_title(f"{row['id']} {row['region']} #{row['unit']}")
+            ax.text(0.05, 0.05, f"n={row['num_spikes']} / {round(row['num_spikes']/sa.get_total_duration(), 2)} Hz", 
+                    transform=ax.transAxes, 
+                    ha='left', va='bottom', c='black', fontsize='small', fontweight='bold')
         fig.suptitle(f"Cluster {df.name} waveforms", y=1.05, fontsize='xx-large')
         plt.show()
 
 
-    def plot_feature_boxplots(self, features:list[str]=None):
+    def plot_feature_boxplots(self, by: Literal['cluster', 'region']='cluster', features:list[str]=None):
         
         df_box = self.get_df(drop_nan_rows=True, drop_unit_unique_cols=True)
         if features is not None:
             df_box = df_box.drop(df_box.columns.difference(features), axis=1)
 
-        df_box.boxplot(by='cluster', **{'sharey':False, 'figsize':(20, 20)})
+        df_box.boxplot(by=by, **{'sharey':False, 'figsize':(20, 20)})
         plt.show()
 
 
-        # tempcols = display(dftemp_clusts.columns.difference(ExperimentFeatureExtractor.DO_NOT_EXPLODE_FEATURES + ['unit']))
 
-
-        # dftemp_clusts.boxplot(column=tempcols, by='cluster', )
-
-    def plot_region_boxplots(self):
-        # Group by region, plot the values of each column
-        pass
+    # def plot_region_boxplots(self):
+    #     # Group by region, plot the values of each column
+    #     pass
     
 
 

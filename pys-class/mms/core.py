@@ -9,7 +9,7 @@
 
 # ## Setup
 
-# In[81]:
+# In[87]:
 
 
 import glob
@@ -61,7 +61,7 @@ from mms import constants
 
 # ## Export
 
-# In[82]:
+# In[88]:
 
 
 def set_tempdir(path:str):
@@ -70,7 +70,7 @@ def set_tempdir(path:str):
 # tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
 
 
-# In[84]:
+# In[90]:
 
 
 class TetrodeMetadata:
@@ -96,7 +96,7 @@ class TetrodeMetadata:
         self.n_channels = n_channels
 
 
-# In[85]:
+# In[91]:
 
 
 import dateutil.parser
@@ -155,7 +155,7 @@ class PyEEGMetadata:
         return units_to_mult[current_units] / units_to_mult[target_units]
 
 
-# In[88]:
+# In[94]:
 
 
 # Preprocess recording for sorting
@@ -175,8 +175,8 @@ def _prep_rec_sorting(recording: si.BaseRecording, metadata: TetrodeMetadata):
     # rec_prep = spre.highpass_filter(rec_prep, freq_min=metadata.bandpass[0])
     rec_prep = spre.bandpass_filter(rec_prep, freq_min=metadata.bandpass[0], freq_max=metadata.bandpass[1], ftype='butter')
     bad_channel_ids, channel_labels = spre.detect_bad_channels(rec_prep)
-    print(bad_channel_ids)
-    print(channel_labels)
+    print(f"\tBad channels: {bad_channel_ids}")
+    print(f"\tChannel labels: {channel_labels}")
     rec_prep = spre.interpolate_bad_channels(rec_prep, bad_channel_ids=bad_channel_ids)
     rec_prep = spre.common_reference(rec_prep, operator='median')
     rec_prep = spre.scale(rec_prep, gain=100) # Scaling for whitening
@@ -209,7 +209,7 @@ class HiddenPrints:
             sys.stdout = self._original_stdout
 
 
-# In[103]:
+# In[95]:
 
 
 def _move_PyEEG_bin_meta_into_subfolders(datadir:Path, suffix_delimiter='_'):
@@ -229,7 +229,7 @@ def _move_PyEEG_bin_meta_into_subfolders(datadir:Path, suffix_delimiter='_'):
 _move_PyEEG_bin_meta_into_subfolders(Path('/mnt/isilon/marsh_single_unit/MarshMountainSort/pyeegbins/'))
 
 
-# In[90]:
+# In[96]:
 
 
 class ILongReader(ABC):
@@ -269,13 +269,17 @@ class ILongReader(ABC):
     
 
 
-# In[91]:
+# In[97]:
 
 
 class LongBinaryReader(ILongReader):
+    """
+    This class is deprecated in favor of LongPyEEGReader
+    """
     def __init__(self, data_folder, metadata=None) -> None:
         super().__init__(data_folder, data_suffix='.npy.gz', metadata=metadata)
         self.metadata.set_n_channels(12)
+        warnings.warn("LongBinaryReader is deprecated. Use LongPyEEGReader for analyzing Datawave data")
     
     def get_files_in_datafolder(self):
         files = super().get_files_in_datafolder()
@@ -309,12 +313,11 @@ class LongBinaryReader(ILongReader):
         return rec
 
 
-# In[92]:
+# In[98]:
 
 
 class LongPyEEGReader(ILongReader):
-    # TODO write this class that reads in file outputs from ddf->binary pipeline, based on above info,
-    # but also using information found in the metadata files, e.g. n_channels, f_s
+    
     def __init__(self, data_folder, metadata:TetrodeMetadata=None):
         super().__init__(data_folder, data_suffix='', metadata=metadata)
 
@@ -328,7 +331,7 @@ class LongPyEEGReader(ILongReader):
     def get_files_in_datafolder(self):
         return super().get_files_in_datafolder()
     
-    def load_region(self, region_name:str, region_to_channel:dict = None, corrective_gain:float = 4e-5):
+    def load_region(self, region_name:str, region_to_channel:dict = None, corrective_gain:float = 6.38898e-4):
         super().load_region(region_name)
         if region_to_channel is None:
             region_to_channel = constants.REGION_TO_DATAWAVE_CHANNEL
@@ -372,7 +375,7 @@ class LongPyEEGReader(ILongReader):
     
 
 
-# In[94]:
+# In[100]:
 
 
 class LongIntanReader(ILongReader):
@@ -438,7 +441,7 @@ class LongIntanReader(ILongReader):
     
 
 
-# In[95]:
+# In[101]:
 
 
 class IAnimalAnalyzer(ABC):
@@ -473,7 +476,7 @@ class IAnimalAnalyzer(ABC):
     
 
 
-# In[96]:
+# In[102]:
 
 
 class AnimalSorter(IAnimalAnalyzer):
@@ -493,11 +496,11 @@ class AnimalSorter(IAnimalAnalyzer):
         dicts:list[dict] = []
         for i, folder in enumerate(self.datadir_subfolders):
 
-            if self.verbose:
-                print(f"[{i+1}/{len(self.datadir_subfolders)}] Reading {folder}..")
             if self.truncate and i >= 3:
                 print("truncate == True, breaking..")
                 break
+            if self.verbose:
+                print(f"[{i+1}/{len(self.datadir_subfolders)}] Reading {folder}..")
             match self.datadir_name:
                 case 'bin' | 'bins' | 'gzip':
                     if intan_port is not None or all_intan_ports is not None:
@@ -535,7 +538,7 @@ class AnimalSorter(IAnimalAnalyzer):
         time.sleep(3)
         shutil.rmtree(path, ignore_errors=True)
     
-    def sort_all(self):
+    def sort_all(self, **kwargs):
         
         for i, row in self.df_readers.iterrows():
             temp_dir = Path(tempfile.gettempdir()) / os.urandom(24).hex()
@@ -559,11 +562,14 @@ class AnimalSorter(IAnimalAnalyzer):
                 if self.verbose:
                     print(f"[{i+1}/{len(self.datadir_subfolders)}] Sorting..")
                 with HiddenPrints(silence=True):
-                    recording_cached = create_cached_recording(recording_sorting, folder=temp_dir, chunk_duration='5s')
+                    recording_cached = create_cached_recording(recording_sorting, 
+                                                               folder=temp_dir, 
+                                                               chunk_duration='5s', 
+                                                               n_jobs=kwargs.pop('n_jobs', None)) #ANCHOR testing
                     # Extract and sort spikes!
                     sorting = ms5.sorting_scheme2(
                         recording=recording_cached,
-                        sorting_parameters=self._sorting_parameters
+                        sorting_parameters=self._sorting_parameters,
                     )
 
                 if self.verbose:
@@ -585,7 +591,7 @@ class AnimalSorter(IAnimalAnalyzer):
 
 
 
-# In[97]:
+# In[103]:
 
 
 class AnimalSortLoader(IAnimalAnalyzer):

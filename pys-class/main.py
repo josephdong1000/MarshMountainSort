@@ -44,7 +44,7 @@ def main():
             )
             dsr.read_filenametodepth_xlsx()
             dsr.plot_all_depths_regions(int(args.id), 
-                                        output_subdir='output-depthsort/New Anims 1-16-25',
+                                        output_subdir='output-depthsort/New Anims 1-24-25',
                                         # output_subdir='output-depthsort/New Anims 12-2-24',
                                         # output_subdir='output-depthsort/New Anims oldsort 12-17-24',
                                         sort_by_depth=not args.nosort,

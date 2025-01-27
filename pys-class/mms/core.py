@@ -9,7 +9,7 @@
 
 # ## Setup
 
-# In[87]:
+# In[128]:
 
 
 import glob
@@ -61,7 +61,7 @@ from mms import constants
 
 # ## Export
 
-# In[88]:
+# In[129]:
 
 
 def set_tempdir(path:str):
@@ -70,7 +70,7 @@ def set_tempdir(path:str):
 # tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
 
 
-# In[90]:
+# In[131]:
 
 
 class TetrodeMetadata:
@@ -96,7 +96,7 @@ class TetrodeMetadata:
         self.n_channels = n_channels
 
 
-# In[91]:
+# In[132]:
 
 
 import dateutil.parser
@@ -155,7 +155,7 @@ class PyEEGMetadata:
         return units_to_mult[current_units] / units_to_mult[target_units]
 
 
-# In[94]:
+# In[135]:
 
 
 # Preprocess recording for sorting
@@ -209,7 +209,7 @@ class HiddenPrints:
             sys.stdout = self._original_stdout
 
 
-# In[95]:
+# In[136]:
 
 
 def _move_PyEEG_bin_meta_into_subfolders(datadir:Path, suffix_delimiter='_'):
@@ -229,7 +229,7 @@ def _move_PyEEG_bin_meta_into_subfolders(datadir:Path, suffix_delimiter='_'):
 _move_PyEEG_bin_meta_into_subfolders(Path('/mnt/isilon/marsh_single_unit/MarshMountainSort/pyeegbins/'))
 
 
-# In[96]:
+# In[137]:
 
 
 class ILongReader(ABC):
@@ -269,7 +269,7 @@ class ILongReader(ABC):
     
 
 
-# In[97]:
+# In[138]:
 
 
 class LongBinaryReader(ILongReader):
@@ -313,7 +313,7 @@ class LongBinaryReader(ILongReader):
         return rec
 
 
-# In[98]:
+# In[139]:
 
 
 class LongPyEEGReader(ILongReader):
@@ -375,7 +375,7 @@ class LongPyEEGReader(ILongReader):
     
 
 
-# In[100]:
+# In[141]:
 
 
 class LongIntanReader(ILongReader):
@@ -441,7 +441,7 @@ class LongIntanReader(ILongReader):
     
 
 
-# In[101]:
+# In[142]:
 
 
 class IAnimalAnalyzer(ABC):
@@ -476,7 +476,7 @@ class IAnimalAnalyzer(ABC):
     
 
 
-# In[102]:
+# In[143]:
 
 
 class AnimalSorter(IAnimalAnalyzer):
@@ -591,7 +591,7 @@ class AnimalSorter(IAnimalAnalyzer):
 
 
 
-# In[103]:
+# In[49]:
 
 
 class AnimalSortLoader(IAnimalAnalyzer):
@@ -705,8 +705,13 @@ class AnimalSortLoader(IAnimalAnalyzer):
         df = self.__get_df_sorts()
         df = df[df['region'] == region]
         if order is not None:
-            assert len(order) == len(df.index)
+            # print("dfindex")
+            # print("\n".join(df['foldername']))
+            # print("order")
+            # print("\n".join(order))
             df = df.set_index('foldername')
+            assert set(df.index).issubset(order)
+            order = [x for x in order if x in df.index]
             df = df.loc[order]
         n_units = df['analyze'].apply(lambda x: x.get_num_units() if x is not None else 0)
         n_plotcols = max(n_units)

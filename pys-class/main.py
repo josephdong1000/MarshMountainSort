@@ -33,7 +33,7 @@ def main():
                 all_intan_ports=args.allintanports
             )
             ao.delete_sorting_folders()
-            ao.sort_all()
+            ao.sort_all(**constants.FAST_JOB_KWARGS)
         case 'depth':
             dsr = figures.DepthSheetReader(
                 args.basefolder,

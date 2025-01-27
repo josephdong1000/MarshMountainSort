@@ -5,47 +5,49 @@ def main():
     defaultparams = "--basefolder /mnt/isilon/marsh_single_unit/MarshMountainSort/"
     batchparams = [
         # NOTE old sortings (Markus, Donald)
-        "--id 766 --datadir pyeegbins",
-        "--id 1131 --datadir pyeegbins",
-        "--id 1132 --datadir pyeegbins",
-        "--id 1133 --datadir pyeegbins",
-        "--id 1155 --datadir pyeegbins",
-        "--id 1158 --datadir pyeegbins",
-        "--id 1176 --datadir pyeegbins",
-        "--id 1177 --datadir pyeegbins",
-        "--id 1178 --datadir pyeegbins",
-        "--id 1185 --datadir pyeegbins",
-        "--id 1203 --datadir pyeegbins",
-        "--id 1211 --datadir pyeegbins",
-        "--id 1214 --datadir pyeegbins",
-        "--id 1225 --datadir pyeegbins",
-        "--id 1226 --datadir pyeegbins",
-        "--id 1227 --datadir pyeegbins",
-        "--id 1231 --datadir pyeegbins",
-        "--id 1233 --datadir pyeegbins",
-        "--id 1234 --datadir pyeegbins",
-        "--id 1236 --datadir pyeegbins",
-        "--id 1238 --datadir pyeegbins",
-        "--id 1244 --datadir pyeegbins",
-        "--id 1269 --datadir pyeegbins", # FIXME
+        # "--id 766 --datadir pyeegbins",
+        # "--id 1131 --datadir pyeegbins",
+        # "--id 1132 --datadir pyeegbins",
+        # "--id 1133 --datadir pyeegbins",
+        # "--id 1155 --datadir pyeegbins",
+        # "--id 1158 --datadir pyeegbins",
+        # "--id 1176 --datadir pyeegbins",
+        # "--id 1177 --datadir pyeegbins",
+        # "--id 1178 --datadir pyeegbins",
+        # "--id 1185 --datadir pyeegbins",
+        # "--id 1203 --datadir pyeegbins",
+        # "--id 1211 --datadir pyeegbins",
+        # "--id 1214 --datadir pyeegbins",
+        # "--id 1225 --datadir pyeegbins",
+        # "--id 1226 --datadir pyeegbins",
+        # "--id 1227 --datadir pyeegbins",
+        # "--id 1231 --datadir pyeegbins",
+        # "--id 1233 --datadir pyeegbins",
+        # "--id 1234 --datadir pyeegbins",
+        # "--id 1236 --datadir pyeegbins",
+        # "--id 1238 --datadir pyeegbins",
+        # "--id 1244 --datadir pyeegbins",
+        "--id 1269 --datadir pyeegbins -o '12 hour recording'",
         # NOTE new sortings (Joseph)
-        "--id 501-502 --datadir rhds --intanport A -aI A B",
-        "--id 501-502 --datadir rhds --intanport B -aI A B",
-        "--id 513-514 --datadir rhds --intanport A -aI A B -o 14htL",
-        "--id 513-514 --datadir rhds --intanport B -aI A B",
-        "--id 529-530 --datadir rhds --intanport A -aI A B",
-        "--id 529-530 --datadir rhds --intanport B -aI A B",
-        "--id 537 --datadir rhds",
-        "--id 556-557 --datadir rhds --intanport A -aI A B",
-        "--id 556-557 --datadir rhds --intanport B -aI A B",
-        "--id 579-580 --datadir rhds --intanport A -aI A B -o 'overnight 1-17-25'",
-        "--id 579-580 --datadir rhds --intanport B -aI A B -o 'overnight 1-17-25'",
+        # "--id 501-502 --datadir rhds --intanport A -aI A B",
+        # "--id 501-502 --datadir rhds --intanport B -aI A B",
+        # "--id 513-514 --datadir rhds --intanport A -aI A B -o 14htL",
+        # "--id 513-514 --datadir rhds --intanport B -aI A B",
+        # "--id 529-530 --datadir rhds --intanport A -aI A B",
+        # "--id 529-530 --datadir rhds --intanport B -aI A B",
+        # "--id 537 --datadir rhds",
+        # "--id 556-557 --datadir rhds --intanport A -aI A B",
+        # "--id 556-557 --datadir rhds --intanport B -aI A B",
+        # "--id 579-580 --datadir rhds --intanport A -aI A B -o 'overnight 1-17-25'",
+        # "--id 579-580 --datadir rhds --intanport B -aI A B -o 'overnight 1-17-25'",
+        # "--id 619-613 --datadir rhds --intanport A -aI A B",
+        # "--id 619-613 --datadir rhds --intanport B -aI A B",
         
         # NOTE sortings to depthplots
         # "--mode depth --id 766",
         # "--mode depth --id 1131",
         # "--mode depth --id 1132",
-        # "--mode depth --id 1133",
+        # "--mode depth --id 1133", # FIXME something is wrong
         # "--mode depth --id 1155",
         # "--mode depth --id 1158",
         # "--mode depth --id 1176",
@@ -65,10 +67,10 @@ def main():
         # "--mode depth --id 1238",
         # "--mode depth --id 1244",
         # "--mode depth --id 1269", # FIXME
-        # "--mode depth --id 501",
-        # "--mode depth --id 502",
-        # "--mode depth --id 513",
-        # "--mode depth --id 514",
+        # "--mode depth --id 501", # TODO
+        # "--mode depth --id 502", # TODO
+        # "--mode depth --id 513", # TODO
+        # "--mode depth --id 514", # TODO
         # "--mode depth --id 529",
         # "--mode depth --id 530",
         # "--mode depth --id 537",
@@ -76,6 +78,8 @@ def main():
         # "--mode depth --id 557",
         # "--mode depth --id 579",
         # "--mode depth --id 580",
+        # "--mode depth --id 613 -ns",
+        # "--mode depth --id 619 -ns",
     ]
 
     for bp in batchparams:
@@ -100,7 +104,7 @@ echo "sbatcher.py subprocess finished"
     cmd = [
         'cd', '/mnt/isilon/marsh_single_unit/MarshMountainSort/;',
         'sbatch', 
-        '--mem', '50G', # NOTE if not sorting 513-514, 20G. Otherwise 50G
+        '--mem', '100G', # NOTE if not sorting 513-514, 20G. Otherwise 50G
         '-t', '24:00:00', 
         '/mnt/isilon/marsh_single_unit/MarshMountainSort/pys-class/batcher.sh']
     cmd = ' '.join(cmd)

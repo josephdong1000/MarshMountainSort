@@ -7,7 +7,7 @@
 # 
 # Run after executing core modules. Will pull information from cached sorting and recording files in `sortings/`
 
-# In[141]:
+# In[3]:
 
 
 import glob
@@ -65,7 +65,7 @@ from mms import constants
 from mms.parser import FolderPathParser
 
 
-# In[142]:
+# In[4]:
 
 
 class DepthSheetReader():
@@ -282,7 +282,7 @@ class DepthSheetReader():
     
 
 
-# In[144]:
+# In[153]:
 
 
 class IExperimentAnalyzer(ABC):
@@ -358,7 +358,7 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
 
     def __init__(self, base_folder: str, dsr:DepthSheetReader, sortdir_name: str = 'sortings', 
                  truncate: bool = False, verbose: bool = True, omit: list[str] = ...,
-                 **job_kwargs) -> None:
+                 **kwargs) -> None:
         
         super().__init__(base_folder, '', '', sortdir_name, truncate, verbose, omit)
         self._dsr = dsr
@@ -377,9 +377,9 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
                                                        name=row['name']), 
                 axis=1
             )
-        for k,kwargs in ExperimentFeatureExtractor.EXTENSION_PARAMS.items():
+        for k,ext_kwargs in ExperimentFeatureExtractor.EXTENSION_PARAMS.items():
             self.df_all_units.apply(
-                lambda row: row['sa'].compute_one_extension(extension_name=k, **(kwargs | job_kwargs)) if row['sa'] is not None else None,
+                lambda row: row['sa'].compute_one_extension(extension_name=k, **(ext_kwargs | kwargs)) if row['sa'] is not None else None,
                 axis=1
             )
         self.df_all_units['n_units'] = self.df_all_units.apply(
@@ -617,7 +617,7 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
 
 
 
-# In[145]:
+# In[154]:
 
 
 class ExperimentPlotter(core.IAnimalAnalyzer, IExperimentAnalyzer):

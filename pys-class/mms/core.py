@@ -9,7 +9,7 @@
 
 # ## Setup
 
-# In[128]:
+# In[35]:
 
 
 import glob
@@ -61,7 +61,7 @@ from mms import constants
 
 # ## Export
 
-# In[129]:
+# In[36]:
 
 
 def set_tempdir(path:str):
@@ -70,7 +70,7 @@ def set_tempdir(path:str):
 # tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
 
 
-# In[131]:
+# In[38]:
 
 
 class TetrodeMetadata:
@@ -96,7 +96,7 @@ class TetrodeMetadata:
         self.n_channels = n_channels
 
 
-# In[132]:
+# In[39]:
 
 
 import dateutil.parser
@@ -155,7 +155,7 @@ class PyEEGMetadata:
         return units_to_mult[current_units] / units_to_mult[target_units]
 
 
-# In[135]:
+# In[41]:
 
 
 # Preprocess recording for sorting
@@ -209,7 +209,7 @@ class HiddenPrints:
             sys.stdout = self._original_stdout
 
 
-# In[136]:
+# In[42]:
 
 
 def _move_PyEEG_bin_meta_into_subfolders(datadir:Path, suffix_delimiter='_'):
@@ -229,7 +229,7 @@ def _move_PyEEG_bin_meta_into_subfolders(datadir:Path, suffix_delimiter='_'):
 _move_PyEEG_bin_meta_into_subfolders(Path('/mnt/isilon/marsh_single_unit/MarshMountainSort/pyeegbins/'))
 
 
-# In[137]:
+# In[43]:
 
 
 class ILongReader(ABC):
@@ -269,7 +269,7 @@ class ILongReader(ABC):
     
 
 
-# In[138]:
+# In[44]:
 
 
 class LongBinaryReader(ILongReader):
@@ -313,7 +313,7 @@ class LongBinaryReader(ILongReader):
         return rec
 
 
-# In[139]:
+# In[45]:
 
 
 class LongPyEEGReader(ILongReader):
@@ -331,15 +331,13 @@ class LongPyEEGReader(ILongReader):
     def get_files_in_datafolder(self):
         return super().get_files_in_datafolder()
     
-    def load_region(self, region_name:str, region_to_channel:dict = None, corrective_gain:float = 6.38898e-4):
+    def load_region(self, region_name:str, region_to_channel:dict = None, corrective_mult:float = 2e-4):
         super().load_region(region_name)
         if region_to_channel is None:
             region_to_channel = constants.REGION_TO_DATAWAVE_CHANNEL
         if region_name not in region_to_channel.keys():
             return None
         channels = region_to_channel[region_name]
-        # Tranpose region column-major file in memory and take only relevant channels. 
-        # Could be costly computationally but easier to implement
         if not hasattr(self, '_rec'):
             col_bin = np.fromfile(self._binary_path, dtype=self.pyeeg_metadata.precision)
             row_bin = np.reshape(col_bin, (-1, self.pyeeg_metadata.n_channels), order='F')
@@ -348,7 +346,7 @@ class LongPyEEGReader(ILongReader):
                         "dtype" : self.pyeeg_metadata.precision,
                         "num_channels" : self.pyeeg_metadata.n_channels,
                         "channel_ids" : [self.pyeeg_metadata.info_to_id[x] for x in self.pyeeg_metadata.channel_infos],
-                        "gain_to_uV" : self.pyeeg_metadata.mult_to_uV * corrective_gain, # REVIEW corrective gain unknown
+                        "gain_to_uV" : self.pyeeg_metadata.mult_to_uV * corrective_mult, # REVIEW corrective multiplier unknown
                         "offset_to_uV" : 0,
                         "time_axis" : 0,
                         "is_filtered" : False}
@@ -356,8 +354,6 @@ class LongPyEEGReader(ILongReader):
             temppath = os.path.join(tempfile.gettempdir(), os.urandom(24).hex())
             print(f"Opening tempfile {temppath}")
             with open(temppath, "wb") as tmp:
-                # fcomp = gzip.GzipFile(bin_rowmajor_path, "r")
-                # bin_rowmajor_decomp = np.load(fcomp)
                 row_bin.tofile(tmp)
                 self._rec = se.read_binary(tmp.name, **si_params)
         
@@ -375,7 +371,7 @@ class LongPyEEGReader(ILongReader):
     
 
 
-# In[141]:
+# In[46]:
 
 
 class LongIntanReader(ILongReader):
@@ -441,7 +437,7 @@ class LongIntanReader(ILongReader):
     
 
 
-# In[142]:
+# In[49]:
 
 
 class IAnimalAnalyzer(ABC):
@@ -476,7 +472,7 @@ class IAnimalAnalyzer(ABC):
     
 
 
-# In[143]:
+# In[50]:
 
 
 class AnimalSorter(IAnimalAnalyzer):
@@ -591,7 +587,7 @@ class AnimalSorter(IAnimalAnalyzer):
 
 
 
-# In[49]:
+# In[51]:
 
 
 class AnimalSortLoader(IAnimalAnalyzer):
@@ -728,9 +724,6 @@ class AnimalSortLoader(IAnimalAnalyzer):
         
         fig, axes = plt.subplots(n_plotrows, n_plotcols, figsize=(2*n_plotcols, 2*n_plotrows), 
                                 sharex=True, sharey=True, squeeze=False)
-        # fig, axes = plt.subplots(n_plotrows, n_plotcols, figsize=None, 
-        #                         sharex=True, sharey=True, squeeze=False) # FIXME testing
-        # plt.subplots_adjust(wspace=0.1, hspace=0.2) # FIXME testing
 
         for j, (idx, row) in enumerate(df.iterrows()):
             sa:si.SortingAnalyzer = row.analyze

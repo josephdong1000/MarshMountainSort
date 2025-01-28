@@ -69,9 +69,7 @@ from mms.parser import FolderPathParser
 
 
 class DepthSheetReader():
-    # REVIEW this can kind of just be a static class with states
-    # But it is used as an instance class
-
+    
     df_depths:pd.DataFrame = None
     df_optdepth:pd.DataFrame = None
 
@@ -282,7 +280,7 @@ class DepthSheetReader():
     
 
 
-# In[153]:
+# In[6]:
 
 
 class IExperimentAnalyzer(ABC):
@@ -315,19 +313,40 @@ class IExperimentAnalyzer(ABC):
     DO_NOT_EXPLODE_FEATURES = ['id', 'region', 'best_depth', 'name', 'sa', 'n_units', 'waveform']
     UNIT_UNIQUE_FEATURES = ['id', 'region', 'best_depth', 'name', 'sa', 'n_units', 'unit', 'waveform']
     BAD_FEATURES = ['sliding_rp_violation', 'velocity_above', 'velocity_below',
-                        'amplitude_cutoff', 'amplitude_cv_median', 'amplitude_cv_range']
+                    'amplitude_cutoff', 'amplitude_cv_median', 'amplitude_cv_range',
+                    'exp_decay']
     
     @abstractmethod
     def __init__(self):
         super().__init__()
         self.df_all_units: pd.DataFrame = None
     
-    def get_df(self, drop_nan_rows=False, drop_nan_ignorecols:list[str]=[], 
-               drop_bad_cols=True, drop_unit_unique_cols=False, drop_extra_cols:list[str]=None, drop_extra_cols_substr:list[str]=None,
-               only_get_cols:list[str]=None):
+    def get_df(self, 
+               drop_nan_rows=False, 
+               drop_nan_ignorecols:list[str]=[], 
+               drop_bad_cols=True, 
+               drop_unit_unique_cols=False, 
+               drop_extra_cols:list[str]=None, 
+               drop_extra_cols_substr:list[str]=None,
+               only_get_cols:list[str]=None,
+               only_get_cols_substr:list[str]=None):
         df = self.df_all_units.copy()
-        if only_get_cols is not None:
-            df = df.loc[:, only_get_cols]
+        
+        if only_get_cols is not None or only_get_cols_substr is not None:
+            all_columns = []
+
+            if only_get_cols is not None:
+                all_columns.extend(only_get_cols)
+
+            # Get list of cols using substrings
+            if only_get_cols_substr is not None:
+                for f in only_get_cols_substr:
+                    all_columns.extend([x for x in df.columns if f in x])
+
+            # Union with only_get_cols
+            all_columns = list(set(all_columns))
+            df = df.loc[:, all_columns]
+            
         else:
             dropcols = []
             if drop_bad_cols:
@@ -349,6 +368,9 @@ class IExperimentAnalyzer(ABC):
             df = df.dropna(axis=0, subset=df.columns.difference(self.UNIT_UNIQUE_FEATURES + drop_nan_ignorecols))
 
         return df
+
+
+# In[7]:
 
 
 class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
@@ -463,7 +485,7 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
             row['waveform'] = wave
         return row
 
-    # NOTE run this after quality or template metrics. You need to set the output to df_all_units manually
+    # NOTE run this after quality or template metrics
     def explode_dataframe(self, in_place=True, df=None):
         # explodecols = ExperimentFeatureExtractor.TEMPLATE_METRIC_FEATURES + \
         #     ExperimentFeatureExtractor.QUALITY_METRIC_FEATURES + ['unit']
@@ -486,53 +508,24 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
             self.df_all_units = df
         return df
     
-    def remove_outliers(self, mode: Literal['iqr', 'std'] = 'iqr', iqr_mult:float = 1.5, std_mult:float = 3, 
+    def find_outliers(self, mode: Literal['iqr', 'std'] = 'iqr', iqr_mult:float = 1.5, std_mult:float = 3, 
                         ignore_cols: list[str]=['num_spikes', 'isi_violations_count', 'rp_violations'], 
-                        ignore_cols_substr: list[str]=['num_', 'mds_wave_'], 
+                        ignore_cols_substr: list[str]=['num_'], 
+                        only_get_cols: list[str]=None,
+                        only_get_cols_substr: list[str]=None,
                         plot_rejects:bool = True,
                         in_place=True, df: pd.DataFrame=None):
         
-        # unit: 0 outliers
-        # num_spikes: 2 outliers
-        # firing_rate: 0 outliers
-        # presence_ratio: 1 outliers
-        # snr: 1 outliers # REVIEW should this be taken out?
-        # isi_violations_ratio: 1 outliers
-        # isi_violations_count: 1 outliers
-        # rp_contamination: 1 outliers
-        # rp_violations: 0 outliers
-        # amplitude_median: 1 outliers
-        # sync_spike_2: 0 outliers
-        # sync_spike_4: 0 outliers
-        # sync_spike_8: 0 outliers
-        # firing_range: 0 outliers
-        # sd_ratio: 0 outliers
-        # isolation_distance: 0 outliers
-        # l_ratio: 0 outliers
-        # d_prime: 0 outliers
-        # silhouette: 0 outliers
-        # nn_hit_rate: 0 outliers
-        # nn_miss_rate: 0 outliers
-        # peak_to_valley: 0 outliers
-        # peak_trough_ratio: 0 outliers
-        # half_width: 1 outliers
-        # repolarization_slope: 0 outliers
-        # recovery_slope: 0 outliers
-        # num_positive_peaks: 4 outliers # REVIEW should this be considered for outlier rejection?
-        # num_negative_peaks: 0 outliers # REVIEW same here
-        # exp_decay: 0 outliers
-        # spread: 0 outliers
-        # mds_wave_0: 0 outliers
-        # mds_wave_1: 0 outliers
-        # mds_wave_2: 0 outliers
-        # mds_wave_3: 0 outliers
-
         df = self.df_all_units if df is None else df
         
         ignore_cols = [] if ignore_cols is None else ignore_cols
         # datacols = df.columns.difference(self.DO_NOT_EXPLODE_FEATURES + self.BAD_FEATURES + ignore_cols, sort=False)
         # print(datacols)
-        datacols = self.get_df(drop_unit_unique_cols=True, drop_extra_cols=ignore_cols, drop_extra_cols_substr=ignore_cols_substr).columns
+        datacols = self.get_df(drop_unit_unique_cols=True, 
+                               drop_extra_cols=ignore_cols, 
+                               drop_extra_cols_substr=ignore_cols_substr, 
+                               only_get_cols=only_get_cols,
+                               only_get_cols_substr=only_get_cols_substr).columns
 
         match mode:
             case 'iqr':
@@ -560,37 +553,43 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
             n_new_reject = df['reject'].sum() - prev_reject.sum()
             print(f'{col}: {n_new_reject} outliers')
 
-            # ANCHOR fixing this
             if plot_rejects and n_new_reject > 0:
-                sas = df.loc[df['reject'] != prev_reject, ['sa', 'unit']]
-                fig, ax = plt.subplots(1, n_new_reject, figsize=(n_new_reject, 1), squeeze=False)
+                sas = df.loc[df['reject'] != prev_reject]
+                fig, ax = plt.subplots(1, n_new_reject, figsize=(n_new_reject * 1.5, 1.5), squeeze=False)
                 for i, (index, row) in enumerate(sas.iterrows()):
                     sw.plot_unit_waveforms_density_map(row['sa'], use_max_channel=True, unit_ids=[row['unit']], ax=ax[0, i])
                     ax[0, i].set_facecolor('black')
                     ax[0, i].set_ylabel('')
-                    ax[0, i].set_ylabel("uV")
+                    ax[0, i].set_title(f"{row['id']} {row['region']} #{row['unit']}")
+                    ax[0, i].text(0.05, 0.05, f"n={row['num_spikes']} / {round(row['num_spikes']/row['sa'].get_total_duration(), 2)} Hz", 
+                            transform=ax[0, i].transAxes, 
+                            ha='left', va='bottom', c='xkcd:orange', fontsize='small', fontweight='bold')
                     # ax[i].set_ybound(ybound_heatmap[0], ybound_heatmap[1])
-                fig.suptitle(col, y=1.05)
+                fig.suptitle(col, y=1.25)
             
         if in_place:
             self.df_all_units = df
         return df
 
-
-    def compute_clusters(self, feature_substrs: list[str] = None, threshold=0.7, plot_tree=True, in_place=True, df=None):
+    def compute_clusters(self, only_get_cols:list[str]=None, only_get_cols_substr: list[str] = None, threshold=0.7, reject_outliers=True, plot_tree=True, in_place=True, df=None):
         df = self.df_all_units if df is None else df
         
-        features = df.columns.difference(self.BAD_FEATURES)
-        if feature_substrs is not None:
-            allfeats = []
-            for f in feature_substrs:
-                allfeats.extend([x for x in features if f in x])
+        features = self.get_df(drop_bad_cols=True).columns
+
+        if only_get_cols_substr is not None:
+            allfeats = self.get_df(only_get_cols=only_get_cols, only_get_cols_substr=only_get_cols_substr).columns
+            allfeats = sorted(allfeats.tolist())
             print(f"Features used for clustering: {allfeats}")
+            
             features = allfeats + self.UNIT_UNIQUE_FEATURES + ['reject']
+
         df2 = df.drop(df.columns.difference(features), axis=1, errors='ignore')
         df2 = df2.dropna(axis=0, subset=df2.columns.difference(self.DO_NOT_EXPLODE_FEATURES))
-        if 'reject' in df2.columns:
-            df2 = df2[~df2['reject']]
+        if reject_outliers:
+            if 'reject' in df2.columns:
+                df2 = df2[~df2['reject']]
+            else:
+                warn("Dataframe missing 'reject' column. Skipping outlier rejection..")
 
         df3 = df2.drop(self.UNIT_UNIQUE_FEATURES, axis=1, errors='ignore')
         df3_std = StandardScaler().fit_transform(df3)
@@ -617,7 +616,7 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
 
 
 
-# In[154]:
+# In[8]:
 
 
 class ExperimentPlotter(core.IAnimalAnalyzer, IExperimentAnalyzer):
@@ -632,7 +631,6 @@ class ExperimentPlotter(core.IAnimalAnalyzer, IExperimentAnalyzer):
         self.__animal_to_best_depth_df = self._dsr.read_animaltobestdepth_xlsx()
         if truncate:
             self.df_all_units = self.df_all_units.sample(10)
-
 
     def __get_clusterdf_clusterids_colorvec(self, features:list[str]=None, random_state:int=None):
         df = self.get_df(drop_nan_rows=True, drop_unit_unique_cols=True, drop_extra_cols=['cluster'])
@@ -704,7 +702,8 @@ class ExperimentPlotter(core.IAnimalAnalyzer, IExperimentAnalyzer):
         plt.show()
 
     def plot_cluster_waveforms(self):
-        df_waves = self.get_df(drop_nan_rows=True, drop_nan_ignorecols=['cluster'])
+        df_waves = self.get_df(drop_nan_rows=True, drop_nan_ignorecols=['cluster'], )
+        # display(df_waves[df_waves['reject'] == True])
         df_waves.groupby('cluster', dropna=False).apply(self.__df_cluster_groupby_func)
 
     def __df_cluster_groupby_func(self, df: pd.DataFrame):
@@ -752,10 +751,6 @@ class ExperimentPlotter(core.IAnimalAnalyzer, IExperimentAnalyzer):
     #     pass
     
 
-
-# ## Read in Optimal Depths
-
-# ## Load Saved Recordings and Sortings
 
 # ## Calculate Spike Statistics
 

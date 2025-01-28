@@ -47,7 +47,7 @@ def main():
         # "--mode depth --id 766",
         # "--mode depth --id 1131",
         # "--mode depth --id 1132",
-        # "--mode depth --id 1133", # FIXME something is wrong
+        # "--mode depth --id 1133",
         # "--mode depth --id 1155",
         # "--mode depth --id 1158",
         # "--mode depth --id 1176",
@@ -66,11 +66,11 @@ def main():
         # "--mode depth --id 1236",
         # "--mode depth --id 1238",
         # "--mode depth --id 1244",
-        # "--mode depth --id 1269", # FIXME
+        # "--mode depth --id 1269",
         # "--mode depth --id 501", # TODO
-        # "--mode depth --id 502", # TODO
-        # "--mode depth --id 513", # TODO
-        # "--mode depth --id 514", # TODO
+        "--mode depth --id 502", # TODO
+        "--mode depth --id 513", # TODO
+        "--mode depth --id 514", # TODO
         # "--mode depth --id 529",
         # "--mode depth --id 530",
         # "--mode depth --id 537",

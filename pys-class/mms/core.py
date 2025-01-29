@@ -9,7 +9,7 @@
 
 # ## Setup
 
-# In[3]:
+# In[22]:
 
 
 # Python standard library
@@ -22,6 +22,7 @@ import shutil
 import sys
 import tempfile
 import time
+import warnings
 from abc import ABC, abstractmethod
 from pathlib import Path
 from pprint import pprint
@@ -67,7 +68,7 @@ from mms import constants
 
 # ## Code
 
-# In[4]:
+# In[23]:
 
 
 def set_tempdir(path:str):
@@ -76,7 +77,7 @@ def set_tempdir(path:str):
 # tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
 
 
-# In[6]:
+# In[25]:
 
 
 class TetrodeMetadata:
@@ -102,7 +103,7 @@ class TetrodeMetadata:
         self.n_channels = n_channels
 
 
-# In[7]:
+# In[26]:
 
 
 class PyEEGMetadata:
@@ -156,12 +157,26 @@ class PyEEGMetadata:
         return units_to_mult[current_units] / units_to_mult[target_units]
 
 
-# In[9]:
+# In[28]:
 
 
 # Preprocess recording for sorting
 def _prep_rec_sorting(recording: si.BaseRecording, metadata: TetrodeMetadata):
-    # NOTE comparing this preprocessing pipeline with IBL-like, IBL performs better
+    """
+    Preprocess recording for spike sorting.
+    
+    Contains two preprocessing pipelines:
+    1. Original pipeline (commented out) 
+    2. Experimental IBL-like pipeline (currently used)
+    
+    Args:
+        recording: Raw recording to preprocess
+        metadata: Recording metadata containing bandpass filter settings
+        
+    Returns:
+        Preprocessed recording ready for sorting
+    """
+    # Original pipeline
     # rec_prep = recording.clone()
     # rec_prep = spre.common_reference(rec_prep)
     # rec_prep = spre.scale(rec_prep, gain=100) # Scaling for whitening
@@ -169,31 +184,61 @@ def _prep_rec_sorting(recording: si.BaseRecording, metadata: TetrodeMetadata):
     # rec_prep = spre.notch_filter(rec_prep, freq=60, q=30) # Get rid of mains hum
     # rec_prep = spre.bandpass_filter(rec_prep, freq_min=metadata.bandpass[0], freq_max=metadata.bandpass[1], ftype='butter')
 
-    # REVIEW experimental IBL destriping-like preprocessing
+    # Experimental IBL destriping-like preprocessing
     rec_prep = recording.clone()
+    
+    # Basic preprocessing
     rec_prep = spre.resample(rec_prep, resample_rate=constants.GLOBAL_F_S)
-    rec_prep = spre.notch_filter(rec_prep, freq=60, q=30) # Get rid of mains hum
+    rec_prep = spre.notch_filter(rec_prep, freq=60, q=30)  # Get rid of mains hum
     # rec_prep = spre.highpass_filter(rec_prep, freq_min=metadata.bandpass[0])
-    rec_prep = spre.bandpass_filter(rec_prep, freq_min=metadata.bandpass[0], freq_max=metadata.bandpass[1], ftype='butter')
+    rec_prep = spre.bandpass_filter(rec_prep, 
+                                  freq_min=metadata.bandpass[0],
+                                  freq_max=metadata.bandpass[1], 
+                                  ftype='butter')
+    
+    # Bad channel detection and interpolation
     bad_channel_ids, channel_labels = spre.detect_bad_channels(rec_prep)
     print(f"\tBad channels: {bad_channel_ids}")
     print(f"\tChannel labels: {channel_labels}")
     rec_prep = spre.interpolate_bad_channels(rec_prep, bad_channel_ids=bad_channel_ids)
+    
+    # Common reference and whitening
     rec_prep = spre.common_reference(rec_prep, operator='median')
-    rec_prep = spre.scale(rec_prep, gain=100) # Scaling for whitening
+    rec_prep = spre.scale(rec_prep, gain=100)  # Scaling for whitening
     rec_prep = spre.whiten(rec_prep)
 
+    # Additional spatial filtering (currently disabled)
     # rec_prep = spre.highpass_spatial_filter(rec_prep, n_channel_pad=4, ) # broken for tiny channels with clustered depths, and also not needed
     
     return rec_prep
 
 # Preprocess recording for waveform extraction. Mangles the data less than preprocess_recording_sorting
 def _prep_rec_waveforms(recording: si.BaseRecording, metadata: TetrodeMetadata):
+    """
+    Preprocess recording for waveform extraction.
+    Uses minimal preprocessing to avoid mangling the data.
+    
+    Args:
+        recording: Raw recording to preprocess
+        metadata: Recording metadata containing bandpass filter settings
+        
+    Returns:
+        Preprocessed recording ready for waveform extraction
+    """
+    # Basic preprocessing only
     rec_prep = recording.clone()
-    rec_prep = spre.notch_filter(rec_prep, freq=60, q=30) # Get rid of mains hum
-    rec_prep = spre.bandpass_filter(rec_prep, freq_min=metadata.bandpass[0], freq_max=metadata.bandpass[1], ftype='butter')
+    rec_prep = spre.notch_filter(rec_prep, freq=60, q=30)  # Get rid of mains hum
+    rec_prep = spre.bandpass_filter(rec_prep, 
+                                  freq_min=metadata.bandpass[0],
+                                  freq_max=metadata.bandpass[1], 
+                                  ftype='butter')
     # rec_prep = spre.highpass_filter(rec_prep, freq_min=metadata.bandpass[0], ftype='butter')
+    
     return rec_prep
+
+
+# In[29]:
+
 
 class HiddenPrints:
     def __init__(self, silence=True) -> None:
@@ -210,7 +255,7 @@ class HiddenPrints:
             sys.stdout = self._original_stdout
 
 
-# In[10]:
+# In[30]:
 
 
 def _move_PyEEG_bin_meta_into_subfolders(datadir:Path, suffix_delimiter='_'):
@@ -230,7 +275,7 @@ def _move_PyEEG_bin_meta_into_subfolders(datadir:Path, suffix_delimiter='_'):
 _move_PyEEG_bin_meta_into_subfolders(Path('/mnt/isilon/marsh_single_unit/MarshMountainSort/pyeegbins/'))
 
 
-# In[11]:
+# In[31]:
 
 
 class ILongReader(ABC):
@@ -270,7 +315,7 @@ class ILongReader(ABC):
     
 
 
-# In[12]:
+# In[32]:
 
 
 class LongBinaryReader(ILongReader):
@@ -314,12 +359,22 @@ class LongBinaryReader(ILongReader):
         return rec
 
 
-# In[13]:
+# In[33]:
 
 
 class LongPyEEGReader(ILongReader):
     
-    def __init__(self, data_folder, metadata:TetrodeMetadata=None):
+    def __init__(self, data_folder, metadata:TetrodeMetadata=None, corrective_mult:float = 5e-5):
+        """
+        Reader for binary files exported from PyEEG.
+        
+        Args:
+            data_folder: Path to folder containing PyEEG data files
+            metadata: TetrodeMetadata object containing probe/channel info
+            corrective_mult: Multiplier to correct for AM gain values. Common values are:
+                           1e-1, 5e-2, 2e-2, 1e-2, 5e-3, 2e-3, 1e-3, 5e-4, 2e-4, 1e-4, or 5e-5
+                           (reciprocals of 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000)
+        """
         super().__init__(data_folder, data_suffix='', metadata=metadata)
 
         files = self.get_files_in_datafolder()
@@ -327,12 +382,13 @@ class LongPyEEGReader(ILongReader):
         self._binary_path = [x for x in files if 'ColMajor.bin' in x][0] # NOTE hardcoded check for ColMajor, RowMajor will not be picked up
         self.pyeeg_metadata:PyEEGMetadata = PyEEGMetadata(self.__pyeeg_metadata_path)
         
-        self.metadata.set_n_channels(self.pyeeg_metadata.n_channels)
+        # self.metadata.set_n_channels(self.pyeeg_metadata.n_channels)
+        self.corrective_mult = corrective_mult
         
     def get_files_in_datafolder(self):
         return super().get_files_in_datafolder()
     
-    def load_region(self, region_name:str, region_to_channel:dict = None, corrective_mult:float = 1e-4):
+    def load_region(self, region_name:str, region_to_channel:dict = None):
         super().load_region(region_name)
         if region_to_channel is None:
             region_to_channel = constants.REGION_TO_DATAWAVE_CHANNEL
@@ -347,7 +403,7 @@ class LongPyEEGReader(ILongReader):
                         "dtype" : self.pyeeg_metadata.precision,
                         "num_channels" : self.pyeeg_metadata.n_channels,
                         "channel_ids" : [self.pyeeg_metadata.info_to_id[x] for x in self.pyeeg_metadata.channel_infos],
-                        "gain_to_uV" : self.pyeeg_metadata.mult_to_uV * corrective_mult, # REVIEW corrective multiplier unknown
+                        "gain_to_uV" : self.pyeeg_metadata.mult_to_uV * self.corrective_mult, # Multiplier should be reciprocal of AM gain values
                         "offset_to_uV" : 0,
                         "time_axis" : 0,
                         "is_filtered" : False}
@@ -358,7 +414,6 @@ class LongPyEEGReader(ILongReader):
                 row_bin.tofile(tmp)
                 self._rec = se.read_binary(tmp.name, **si_params)
         
-
         channel_id_subset = self._rec.channel_ids[channels]
         
         rec = self._rec.clone()
@@ -366,13 +421,12 @@ class LongPyEEGReader(ILongReader):
         rec = rec.set_probegroup(self.metadata.probe_group)
 
         return rec
-        
     # def _read_npygz_as_rec(self, npygz_path):
         # return rec
     
 
 
-# In[14]:
+# In[34]:
 
 
 class LongIntanReader(ILongReader):
@@ -381,7 +435,7 @@ class LongIntanReader(ILongReader):
 
     def __init__(self, data_folder, metadata=None, intan_port='A', all_intan_ports=['A']) -> None:
         super().__init__(data_folder, '.rhd', metadata=metadata)
-        self.metadata.set_n_channels(16) # NOTE hardcoded
+        # self.metadata.set_n_channels(16)
         self.rec_allport_allregion: si.ConcatenateSegmentRecording = None
         self.all_intan_ports = all_intan_ports
         if intan_port is None:
@@ -438,7 +492,7 @@ class LongIntanReader(ILongReader):
     
 
 
-# In[17]:
+# In[35]:
 
 
 class IAnimalAnalyzer(ABC):
@@ -473,7 +527,7 @@ class IAnimalAnalyzer(ABC):
     
 
 
-# In[18]:
+# In[36]:
 
 
 class AnimalSorter(IAnimalAnalyzer):
@@ -587,7 +641,7 @@ class AnimalSorter(IAnimalAnalyzer):
 
 
 
-# In[19]:
+# In[37]:
 
 
 class AnimalSortLoader(IAnimalAnalyzer):

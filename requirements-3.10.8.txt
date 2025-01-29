@@ -1,0 +1,12 @@
+matplotlib
+mountainsort5
+numpy
+pandas
+probeinterface
+python_dateutil
+scikit_learn
+scipy
+seaborn
+spikeinterface
+tqdm
+ipykernel

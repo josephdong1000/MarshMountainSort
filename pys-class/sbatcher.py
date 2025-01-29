@@ -5,11 +5,11 @@ def main():
     defaultparams = "--basefolder /mnt/isilon/marsh_single_unit/MarshMountainSort/"
     batchparams = [
         # NOTE old sortings (Markus, Donald)
-        # "--id 766 --datadir pyeegbins",
-        # "--id 1131 --datadir pyeegbins",
-        # "--id 1132 --datadir pyeegbins",
-        # "--id 1133 --datadir pyeegbins",
-        # "--id 1155 --datadir pyeegbins",
+        # "--id 766 --datadir pyeegbins", # SECTION - reviewing
+        # "--id 1131 --datadir pyeegbins", # SECTION - reviewing  
+        # "--id 1132 --datadir pyeegbins", # SECTION - reviewing
+        # "--id 1133 --datadir pyeegbins", # SECTION - reviewing
+        # "--id 1155 --datadir pyeegbins", # SECTION - reviewing
         # "--id 1158 --datadir pyeegbins",
         # "--id 1176 --datadir pyeegbins",
         # "--id 1177 --datadir pyeegbins",
@@ -27,7 +27,7 @@ def main():
         # "--id 1236 --datadir pyeegbins",
         # "--id 1238 --datadir pyeegbins",
         # "--id 1244 --datadir pyeegbins",
-        "--id 1269 --datadir pyeegbins -o '12 hour recording'",
+        # "--id 1269 --datadir pyeegbins -o '12 hour recording'",
         # NOTE new sortings (Joseph)
         # "--id 501-502 --datadir rhds --intanport A -aI A B",
         # "--id 501-502 --datadir rhds --intanport B -aI A B",
@@ -44,11 +44,11 @@ def main():
         # "--id 619-613 --datadir rhds --intanport B -aI A B",
         
         # NOTE sortings to depthplots
-        # "--mode depth --id 766",
-        # "--mode depth --id 1131",
-        # "--mode depth --id 1132",
-        # "--mode depth --id 1133",
-        # "--mode depth --id 1155",
+        # "--mode depth --id 766", # SECTION - reviewing
+        # "--mode depth --id 1131", # SECTION - reviewing
+        # "--mode depth --id 1132", # SECTION - reviewing
+        # "--mode depth --id 1133", # SECTION - reviewing
+        # "--mode depth --id 1155", # SECTION - reviewing
         # "--mode depth --id 1158",
         # "--mode depth --id 1176",
         # "--mode depth --id 1177",
@@ -68,9 +68,9 @@ def main():
         # "--mode depth --id 1244",
         # "--mode depth --id 1269",
         # "--mode depth --id 501", # TODO
-        "--mode depth --id 502", # TODO
-        "--mode depth --id 513", # TODO
-        "--mode depth --id 514", # TODO
+        # "--mode depth --id 502", # TODO
+        # "--mode depth --id 513", # TODO
+        # "--mode depth --id 514", # TODO
         # "--mode depth --id 529",
         # "--mode depth --id 530",
         # "--mode depth --id 537",

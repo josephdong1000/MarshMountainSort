@@ -9,59 +9,65 @@
 
 # ## Setup
 
-# In[35]:
+# In[3]:
 
 
-import glob
-import shutil
-import os
-import sys
-import gzip
-from pathlib import Path
+# Python standard library
 import datetime
-import dateutil
-from abc import ABC, abstractmethod
+import glob
+import gzip
+import os
 import re
-import warnings
+import shutil
+import sys
 import tempfile
 import time
+from abc import ABC, abstractmethod
+from pathlib import Path
+from pprint import pprint
 from textwrap import wrap
 from typing import Literal
-from pprint import pprint
 
-# import pkg_resources
-# pkg_resources.require('matplotlib==3.8.3')
+# Third party imports
+import dateutil
+import dateutil.parser
 import matplotlib.pyplot as plt
-# from matplotlib.ticker import AutoLocator
 import numpy as np
+import pandas as pd
 import probeinterface as pi
 from probeinterface.plotting import plot_probe
-import pandas as pd
 
+# Spike sorting related imports
 import mountainsort5 as ms5
 from mountainsort5.util import create_cached_recording
 import spikeinterface.core as si
 import spikeinterface.extractors as se
 import spikeinterface.preprocessing as spre
-# import spikeinterface.sorters as ss
 import spikeinterface.postprocessing as spost
+import spikeinterface.sortingcomponents as sc
+import spikeinterface.widgets as sw
+
+# Local imports
+from mms import constants
+
+# Commented imports
+# import pkg_resources
+# pkg_resources.require('matplotlib==3.8.3')
+# from matplotlib.ticker import AutoLocator
+# import spikeinterface.sorters as ss
 # import spikeinterface.qualitymetrics as sqm
 # import spikeinterface.exporters as sexp
 # import spikeinterface.comparison as scmp
 # import spikeinterface.curation as scur
-import spikeinterface.sortingcomponents as sc
-# from spikeinterface.sortingcomponents.motion_interpolation import 
-import spikeinterface.widgets as sw
-
-from mms import constants
+# from spikeinterface.sortingcomponents.motion_interpolation import
 
 # from tqdm import tqdm
 # from functools import partialmethod
 
 
-# ## Export
+# ## Code
 
-# In[36]:
+# In[4]:
 
 
 def set_tempdir(path:str):
@@ -70,7 +76,7 @@ def set_tempdir(path:str):
 # tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
 
 
-# In[38]:
+# In[6]:
 
 
 class TetrodeMetadata:
@@ -78,7 +84,7 @@ class TetrodeMetadata:
     def __init__(self, bandpass:list[int]=None, plot_pg=False) -> None:
         self.bandpass: list[int] = bandpass if bandpass is not None else constants.GLOBAL_BANDPASS
 
-        tetrode = pi.generate_tetrode() # FIXME this should be 25 microns across, default 10
+        tetrode = pi.generate_tetrode()
         tetrode.set_device_channel_indices(np.arange(4))
         tetrode.set_contact_ids(np.arange(4))
         pg = pi.ProbeGroup()
@@ -96,10 +102,7 @@ class TetrodeMetadata:
         self.n_channels = n_channels
 
 
-# In[39]:
-
-
-import dateutil.parser
+# In[7]:
 
 
 class PyEEGMetadata:
@@ -133,8 +136,6 @@ class PyEEGMetadata:
         self.entity_to_info = {k:v[0] for k,v in self.entity_to_info.items()}
         self.channel_infos = list(self.channel_to_info.values())
 
-        # TODO read probe geometry information, may be user-defined
-
     def __getsinglecolval(self, colname):
         vals = self.metadata_df.loc[:, colname]
         if len(np.unique(vals)) > 1:
@@ -155,7 +156,7 @@ class PyEEGMetadata:
         return units_to_mult[current_units] / units_to_mult[target_units]
 
 
-# In[41]:
+# In[9]:
 
 
 # Preprocess recording for sorting
@@ -209,7 +210,7 @@ class HiddenPrints:
             sys.stdout = self._original_stdout
 
 
-# In[42]:
+# In[10]:
 
 
 def _move_PyEEG_bin_meta_into_subfolders(datadir:Path, suffix_delimiter='_'):
@@ -229,7 +230,7 @@ def _move_PyEEG_bin_meta_into_subfolders(datadir:Path, suffix_delimiter='_'):
 _move_PyEEG_bin_meta_into_subfolders(Path('/mnt/isilon/marsh_single_unit/MarshMountainSort/pyeegbins/'))
 
 
-# In[43]:
+# In[11]:
 
 
 class ILongReader(ABC):
@@ -269,7 +270,7 @@ class ILongReader(ABC):
     
 
 
-# In[44]:
+# In[12]:
 
 
 class LongBinaryReader(ILongReader):
@@ -313,7 +314,7 @@ class LongBinaryReader(ILongReader):
         return rec
 
 
-# In[45]:
+# In[13]:
 
 
 class LongPyEEGReader(ILongReader):
@@ -331,7 +332,7 @@ class LongPyEEGReader(ILongReader):
     def get_files_in_datafolder(self):
         return super().get_files_in_datafolder()
     
-    def load_region(self, region_name:str, region_to_channel:dict = None, corrective_mult:float = 2e-4):
+    def load_region(self, region_name:str, region_to_channel:dict = None, corrective_mult:float = 1e-4):
         super().load_region(region_name)
         if region_to_channel is None:
             region_to_channel = constants.REGION_TO_DATAWAVE_CHANNEL
@@ -371,7 +372,7 @@ class LongPyEEGReader(ILongReader):
     
 
 
-# In[46]:
+# In[14]:
 
 
 class LongIntanReader(ILongReader):
@@ -437,7 +438,7 @@ class LongIntanReader(ILongReader):
     
 
 
-# In[49]:
+# In[17]:
 
 
 class IAnimalAnalyzer(ABC):
@@ -472,7 +473,7 @@ class IAnimalAnalyzer(ABC):
     
 
 
-# In[50]:
+# In[18]:
 
 
 class AnimalSorter(IAnimalAnalyzer):
@@ -544,10 +545,9 @@ class AnimalSorter(IAnimalAnalyzer):
             for region in constants.REGIONS:
                 if self.verbose:
                     print(f"[{i+1}/{len(self.datadir_subfolders)}] Loading data: ({region}) {reader.data_folder_name}..")
-                if reader.data_suffix == '.rhd':
-                    recording = reader.load_region(region_name=region)
-                else:
-                    recording = reader.load_region(region_name=region)
+                
+                recording = reader.load_region(region_name=region) # Load recording for sorting 
+                
                 if recording is None:
                     print(f"Missing region {region}, skipping")
                     continue
@@ -587,7 +587,7 @@ class AnimalSorter(IAnimalAnalyzer):
 
 
 
-# In[51]:
+# In[19]:
 
 
 class AnimalSortLoader(IAnimalAnalyzer):
@@ -880,6 +880,4 @@ class AnimalSortLoader(IAnimalAnalyzer):
         return si.create_sorting_analyzer(sorting=sort, recording=rec, format='memory', sparse=False)
 
 
-# ## Find All Files for Animal
-
-# ## Sort Spikes
+# ## Testing

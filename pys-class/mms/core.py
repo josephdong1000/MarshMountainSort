@@ -9,7 +9,7 @@
 
 # ## Setup
 
-# In[22]:
+# In[28]:
 
 
 # Python standard library
@@ -68,7 +68,7 @@ from mms import constants
 
 # ## Code
 
-# In[23]:
+# In[29]:
 
 
 def set_tempdir(path:str):
@@ -77,7 +77,7 @@ def set_tempdir(path:str):
 # tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
 
 
-# In[25]:
+# In[31]:
 
 
 class TetrodeMetadata:
@@ -103,7 +103,7 @@ class TetrodeMetadata:
         self.n_channels = n_channels
 
 
-# In[26]:
+# In[32]:
 
 
 class PyEEGMetadata:
@@ -157,7 +157,7 @@ class PyEEGMetadata:
         return units_to_mult[current_units] / units_to_mult[target_units]
 
 
-# In[28]:
+# In[34]:
 
 
 # Preprocess recording for sorting
@@ -237,7 +237,7 @@ def _prep_rec_waveforms(recording: si.BaseRecording, metadata: TetrodeMetadata):
     return rec_prep
 
 
-# In[29]:
+# In[35]:
 
 
 class HiddenPrints:
@@ -255,7 +255,7 @@ class HiddenPrints:
             sys.stdout = self._original_stdout
 
 
-# In[30]:
+# In[36]:
 
 
 def _move_PyEEG_bin_meta_into_subfolders(datadir:Path, suffix_delimiter='_'):
@@ -275,7 +275,7 @@ def _move_PyEEG_bin_meta_into_subfolders(datadir:Path, suffix_delimiter='_'):
 _move_PyEEG_bin_meta_into_subfolders(Path('/mnt/isilon/marsh_single_unit/MarshMountainSort/pyeegbins/'))
 
 
-# In[31]:
+# In[37]:
 
 
 class ILongReader(ABC):
@@ -315,12 +315,12 @@ class ILongReader(ABC):
     
 
 
-# In[32]:
+# In[38]:
 
 
 class LongBinaryReader(ILongReader):
     """
-    This class is deprecated in favor of LongPyEEGReader
+    This class is deprecated in favor of LongPyEEGReader. A lot of variables are hardcoded for Datawave data.
     """
     def __init__(self, data_folder, metadata=None) -> None:
         super().__init__(data_folder, data_suffix='.npy.gz', metadata=metadata)
@@ -336,7 +336,6 @@ class LongBinaryReader(ILongReader):
         if not any([region_name in filename for filename in self.get_files_in_datafolder()]):
             return None
         region_file = [x for x in self.get_files_in_datafolder() if region_name in x]
-        # print(region_file)
         if len(region_file) > 1:
             raise ValueError(f"Too many regions found {region_name}: {region_file}")
         region_file = region_file[0]
@@ -351,22 +350,23 @@ class LongBinaryReader(ILongReader):
             binary_decomp = np.load(fcomp)
             binary_decomp.tofile(tmp)
             rec = se.read_binary(tmp.name, 
-                                 sampling_frequency=25000, # NOTE hardcoded, because PyEEG handles this more elegantly and should be used over this
+                                 sampling_frequency=25000,
                                  dtype=np.float32,
                                  num_channels=self.metadata.n_channels, 
-                                 gain_to_uV=0.04, # REVIEW what is the true gain to uV? datawave says stored as mV, but remember that all the units seemed off by a factor of 1000?
+                                 gain_to_uV=0.04,
                                  offset_to_uV=0)
         return rec
 
 
-# In[33]:
+# In[14]:
 
 
 class LongPyEEGReader(ILongReader):
     
-    def __init__(self, data_folder, metadata:TetrodeMetadata=None, corrective_mult:float = 5e-5):
+    def __init__(self, data_folder, metadata:TetrodeMetadata=None, corrective_mult:float = 2e-4):
         """
-        Reader for binary files exported from PyEEG.
+        Reader for binary files exported from PyEEG Matlab preprocessing script.
+        Some variables like _binary_path are hardcoded for PyEEG output.
         
         Args:
             data_folder: Path to folder containing PyEEG data files
@@ -382,7 +382,6 @@ class LongPyEEGReader(ILongReader):
         self._binary_path = [x for x in files if 'ColMajor.bin' in x][0] # NOTE hardcoded check for ColMajor, RowMajor will not be picked up
         self.pyeeg_metadata:PyEEGMetadata = PyEEGMetadata(self.__pyeeg_metadata_path)
         
-        # self.metadata.set_n_channels(self.pyeeg_metadata.n_channels)
         self.corrective_mult = corrective_mult
         
     def get_files_in_datafolder(self):
@@ -426,7 +425,7 @@ class LongPyEEGReader(ILongReader):
     
 
 
-# In[34]:
+# In[15]:
 
 
 class LongIntanReader(ILongReader):
@@ -492,7 +491,7 @@ class LongIntanReader(ILongReader):
     
 
 
-# In[35]:
+# In[16]:
 
 
 class IAnimalAnalyzer(ABC):
@@ -527,7 +526,7 @@ class IAnimalAnalyzer(ABC):
     
 
 
-# In[36]:
+# In[17]:
 
 
 class AnimalSorter(IAnimalAnalyzer):
@@ -641,7 +640,7 @@ class AnimalSorter(IAnimalAnalyzer):
 
 
 
-# In[37]:
+# In[18]:
 
 
 class AnimalSortLoader(IAnimalAnalyzer):
@@ -677,6 +676,7 @@ class AnimalSortLoader(IAnimalAnalyzer):
     
     def extract_analyzers_df(self):
         df = self.__get_df_sorts()
+        # df['analyze', 'analyze_folder'] = df.apply(self.__extract_sa_row, axis=1, result_type='expand')
         df['analyze'] = df.apply(self.__extract_sa_row, axis=1)
         
         self.df_sorts = df
@@ -690,7 +690,13 @@ class AnimalSortLoader(IAnimalAnalyzer):
             return None
         rec = spre.resample(rec, constants.GLOBAL_F_S) # Upsample/downsample recording to global sampling frequency
         
-        sa = si.create_sorting_analyzer(sorting=sort, recording=rec, format='memory', sparse=False)
+        # sa = si.create_sorting_analyzer(sorting=sort, recording=rec, format='memory', sparse=False)
+        # temp_dir = Path(tempfile.gettempdir()) / os.urandom(24).hex()
+        # os.makedirs(temp_dir)
+        sa = si.create_sorting_analyzer(sorting=sort, 
+                                        recording=rec, 
+                                        format='memory', 
+                                        sparse=False)
         return sa
 
     def compute_extension_df(self, extension:str, region:str | None, **kwargs):
@@ -736,12 +742,12 @@ class AnimalSortLoader(IAnimalAnalyzer):
 
     def _get_computable_extensions(self, rowidx:int):
         row = self.__get_df_sorts().iloc[rowidx]
-        sa:si.SortingAnalyzer = row.analyze
+        sa:si.SortingAnalyzer = row['analyze']
         return sa.get_computable_extensions()
 
     def _get_default_extension_params(self, rowidx:int, extension:str):
         row = self.__get_df_sorts().iloc[rowidx]
-        sa:si.SortingAnalyzer = row.analyze
+        sa:si.SortingAnalyzer = row['analyze']
         return sa.get_default_extension_params(extension_name=extension)
 
     def plot_units_oneregion(self, region:str, 
@@ -780,7 +786,7 @@ class AnimalSortLoader(IAnimalAnalyzer):
                                 sharex=True, sharey=True, squeeze=False)
 
         for j, (idx, row) in enumerate(df.iterrows()):
-            sa:si.SortingAnalyzer = row.analyze
+            sa:si.SortingAnalyzer = row['analyze']
             n_units = sa.get_num_units() if sa is not None else 0
             n_units = min(n_units, max_cols)
             firstax = axes[j, 0]
@@ -931,7 +937,11 @@ class AnimalSortLoader(IAnimalAnalyzer):
         if rec is None:
             warnings.warn("Recording is None")
             return None
-        return si.create_sorting_analyzer(sorting=sort, recording=rec, format='memory', sparse=False)
+        
+        return si.create_sorting_analyzer(sorting=sort, 
+                                          recording=rec, 
+                                          format='memory',
+                                          sparse=False)
 
 
 # ## Testing

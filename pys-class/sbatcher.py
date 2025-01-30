@@ -32,7 +32,7 @@ def main():
         "--id 501-502 --datadir rhds --intanport A -aI A B",
         "--id 501-502 --datadir rhds --intanport B -aI A B",
         "--id 513-514 --datadir rhds --intanport A -aI A B -o 14htL",
-        "--id 513-514 --datadir rhds --intanport B -aI A B",
+        "--id 513-514 --datadir rhds --intanport B -aI A B -o 14htL",
         "--id 529-530 --datadir rhds --intanport A -aI A B",
         "--id 529-530 --datadir rhds --intanport B -aI A B",
         "--id 537 --datadir rhds",
@@ -67,10 +67,10 @@ def main():
         # "--mode depth --id 1238",
         # "--mode depth --id 1244",
         # "--mode depth --id 1269",
-        # "--mode depth --id 501", # TODO
-        # "--mode depth --id 502", # TODO
-        # "--mode depth --id 513", # TODO
-        # "--mode depth --id 514", # TODO
+        # "--mode depth --id 501",
+        # "--mode depth --id 502",
+        # "--mode depth --id 513",
+        # "--mode depth --id 514",
         # "--mode depth --id 529",
         # "--mode depth --id 530",
         # "--mode depth --id 537",
@@ -104,7 +104,7 @@ echo "sbatcher.py subprocess finished"
     cmd = [
         'cd', '/mnt/isilon/marsh_single_unit/MarshMountainSort/;',
         'sbatch', 
-        '--mem', '100G', # NOTE if not sorting 513-514, 20G. Otherwise 50G
+        '--mem', '50G', # NOTE if not sorting 513-514, 20G. Otherwise 50G
         '-t', '24:00:00', 
         '/mnt/isilon/marsh_single_unit/MarshMountainSort/pys-class/batcher.sh']
     cmd = ' '.join(cmd)

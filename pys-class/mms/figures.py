@@ -7,65 +7,57 @@
 # 
 # Run after executing core modules. Will pull information from cached sorting and recording files in `sortings/`
 
-# In[3]:
+# In[23]:
 
 
-import glob
-import shutil
-import os
+# Python standard library
 import csv
-import gzip
-from pathlib import Path
 import datetime
-from warnings import warn
-from abc import ABC, abstractmethod
+import glob
+import gzip
+import os
 import re
-import dateutil.parser as dparser
-from textwrap import wrap
+import shutil
+from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
 from functools import reduce
+from pathlib import Path
+from textwrap import wrap
 from typing import Literal
+from warnings import warn, catch_warnings, simplefilter, filterwarnings
+from multiprocessing import Pool
+import tempfile
 
+# Third party packages
+import dateutil.parser as dparser
 import matplotlib.pyplot as plt
+import mountainsort5 as ms5
 import numpy as np
-import seaborn as sns
-# import probeinterface as pi
 import pandas as pd
-# import openpyxl
-from statannotations.Annotator import Annotator
-# import starbars
-# from probeinterface.plotting import plot_probe
-# import tempfile
-# from tempfile import TemporaryDirectory
-from scipy.optimize import curve_fit
-from scipy.stats import skewnorm, norm, zscore
-from scipy.signal import savgol_filter, savgol_coeffs, convolve, windows
 import scipy.cluster.hierarchy as shc
-from sklearn.preprocessing import StandardScaler
+import seaborn as sns
+import spikeinterface.core as si
+import spikeinterface.extractors as se
+import spikeinterface.postprocessing as spost
+import spikeinterface.qualitymetrics as sqm
+import spikeinterface.widgets as sw
+from mountainsort5.util import create_cached_recording
+from scipy.optimize import curve_fit
+from scipy.signal import convolve, savgol_coeffs, savgol_filter, windows
+from scipy.stats import norm, skewnorm, zscore
 from sklearn.decomposition import PCA
 from sklearn.manifold import MDS
 from sklearn.metrics.pairwise import euclidean_distances, manhattan_distances
+from sklearn.preprocessing import StandardScaler
+from statannotations.Annotator import Annotator
+from pandarallel import pandarallel
 
-import mountainsort5 as ms5
-from mountainsort5.util import create_cached_recording
-import spikeinterface.core as si
-import spikeinterface.extractors as se
-# import spikeinterface.preprocessing as spre
-# import spikeinterface.sorters as ss
-import spikeinterface.postprocessing as spost
-import spikeinterface.qualitymetrics as sqm
-# import spikeinterface.exporters as sexp
-# import spikeinterface.comparison as scmp
-# import spikeinterface.curation as scur
-# import spikeinterface.sortingcomponents as sc
-import spikeinterface.widgets as sw
-
-from mms import core
-# from mms.constants import GENOTYPE_ALIASES, REGIONS, FAST_JOB_KWARGS
-from mms import constants
+# Local imports
+from mms import constants, core
 from mms.parser import FolderPathParser
 
 
-# In[4]:
+# In[5]:
 
 
 class DepthSheetReader():
@@ -142,7 +134,6 @@ class DepthSheetReader():
     
     @staticmethod
     def get_row_from_depth_df(identifier:int, region:str, depth:float=None, name:str=None):
-        # def _load_sortinganalyzer(self, ):
         if depth is None and name is None:
             raise TypeError("Cannot have both depth and name as None")
         mask = DepthSheetReader.df_depths['id'] == identifier
@@ -280,7 +271,7 @@ class DepthSheetReader():
     
 
 
-# In[6]:
+# In[7]:
 
 
 class IExperimentAnalyzer(ABC):
@@ -310,8 +301,8 @@ class IExperimentAnalyzer(ABC):
        'half_width', 'repolarization_slope', 'recovery_slope',
        'num_positive_peaks', 'num_negative_peaks', 'velocity_above',
        'velocity_below', 'exp_decay', 'spread']
-    DO_NOT_EXPLODE_FEATURES = ['id', 'region', 'best_depth', 'name', 'sa', 'n_units', 'waveform']
-    UNIT_UNIQUE_FEATURES = ['id', 'region', 'best_depth', 'name', 'sa', 'n_units', 'unit', 'waveform']
+    DO_NOT_EXPLODE_FEATURES = ['id', 'region', 'best_depth', 'name', 'sa', 'sa_savedir', 'rec_duration', 'n_units', 'waveform']
+    UNIT_UNIQUE_FEATURES = ['id', 'region', 'best_depth', 'name', 'sa', 'sa_savedir', 'rec_duration', 'n_units', 'unit', 'waveform']
     BAD_FEATURES = ['sliding_rp_violation', 'velocity_above', 'velocity_below',
                     'amplitude_cutoff', 'amplitude_cv_median', 'amplitude_cv_range',
                     'exp_decay']
@@ -370,13 +361,10 @@ class IExperimentAnalyzer(ABC):
         return df
 
 
-# In[7]:
+# In[28]:
 
 
 class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
-
-    # FIXME sliding_rp_violation seems like a good stat, but returns many many np.Nans. See documentation to avoid this
-    # FIXME i have a feeling these other stats are also good, but the spikeinterface settings need changing    
 
     def __init__(self, base_folder: str, dsr:DepthSheetReader, sortdir_name: str = 'sortings', 
                  truncate: bool = False, verbose: bool = True, omit: list[str] = ...,
@@ -389,64 +377,74 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
 
         self.df_all_units = self.__animal_to_best_depth_df.copy()
         if truncate:
-            self.df_all_units = self.df_all_units.sample(5, random_state=42)
+            self.df_all_units = self.df_all_units.sample(3, random_state=42)
 
-        self.df_all_units['sa'] = \
-            self.df_all_units.apply(
-                lambda row: self._load_sortinganalyzer(identifier=row.id,
-                                                       region=row.region,
-                                                       depth=row.best_depth,
-                                                       name=row['name']), 
-                axis=1
-            )
-        for k,ext_kwargs in ExperimentFeatureExtractor.EXTENSION_PARAMS.items():
-            self.df_all_units.apply(
-                lambda row: row['sa'].compute_one_extension(extension_name=k, **(ext_kwargs | kwargs)) if row['sa'] is not None else None,
-                axis=1
-            )
-        self.df_all_units['n_units'] = self.df_all_units.apply(
-            lambda row: row['sa'].get_num_units() if row['sa'] is not None else np.nan, axis=1)
-        self.df_all_units['unit'] = self.df_all_units.apply(
-            lambda row: list(range(1, row['sa'].get_num_units() + 1)) if row['sa'] is not None else np.nan, axis=1)
+        # Process rows in parallel using multiprocessing
+        with Pool(processes=constants.FAST_JOB_KWARGS['n_jobs']) as pool:
+            row_data = self.df_all_units.to_dict('records')
+            results = pool.map(self._init_process_row_no_sa, row_data)
+        results = [x for x in results if x is not None]
+        self.df_all_units = pd.DataFrame(results)
+
+        # Load sorting analyzers from file
+        self.df_all_units['sa'] = self.df_all_units['sa_savedir'].apply(lambda x: si.load_sorting_analyzer(x / 'result.zarr', format='zarr'))
+
+    def _init_process_row_no_sa(self, row:dict):
+        row: pd.Series = pd.Series(row)
+        folderpath = DepthSheetReader.get_row_from_depth_df(identifier=row['id'],
+                                                            region=row['region'],
+                                                            depth=row['best_depth'],
+                                                            name=row['name']).folder
+        sa = core.AnimalSortLoader.load_sortinganalyzer(folderpath, region=row['region'])
+        if sa is None:
+            return None
+
+        temp_dir = Path(tempfile.gettempdir()) / os.urandom(24).hex()
+        os.makedirs(temp_dir)
+        row['sa'] = sa
+        row['sa_savedir'] = temp_dir
+        row['n_units'] = row['sa'].get_num_units()
+        row['unit'] = list(range(1, row['sa'].get_num_units() + 1))
+        row['rec_duration'] = row['sa'].get_total_duration()
         
-    def _load_sortinganalyzer(self, identifier:int, region:str, depth:float=None, name:str=None):
-        row = DepthSheetReader.get_row_from_depth_df(identifier=identifier, region=region, depth=depth, name=name)
-        return core.AnimalSortLoader.load_sortinganalyzer(row.folder, region=region)
+        with catch_warnings(): # REVIEW why arent there 4 concurrent processes?
+            # simplefilter('ignore')
+            filterwarnings('ignore', message='With less than 10 channels, multi-channel metrics might not be reliable.')
+            filterwarnings('ignore', message='`n_jobs` is not set so parallel processing is disabled!')
+            
+            for k, ext_kwargs in ExperimentFeatureExtractor.EXTENSION_PARAMS.items():
+                # sa.compute_one_extension(k, **(ext_kwargs | kwargs))
+                sa.compute_one_extension(k, **(ext_kwargs))
+            
+            row = self.__compute_qm_row(row)
+            row = self.__compute_tm_row(row)
+            
+        row = row.apply(lambda x: x.tolist() if isinstance(x, pd.Series) else x)
+        sa.save_as(format='zarr', folder=row['sa_savedir'] / 'result.zarr')
+        row.drop('sa', inplace=True)
+        
+        return row
     
-    def remove_no_sa_rows(self, in_place=True, df=None):
-        df = self.df_all_units if df is None else df
-        df = df.dropna(subset=['sa'])
-        if in_place:
-            self.df_all_units = df
-        return df
-
-    def compute_quality_metrics(self, in_place=True, df=None):
-        df = self.df_all_units if df is None else df
-        df = df.apply(self.__compute_qm_row, axis=1)
-        if in_place:
-            self.df_all_units = df
-        return df
+    # def remove_no_sa_rows(self, in_place=True, df=None):
+    #     df = self.df_all_units if df is None else df
+    #     df = df.dropna(subset=['sa'])
+    #     if in_place:
+    #         self.df_all_units = df
+    #     return df
 
     def __compute_qm_row(self, row: pd.Series):
         sa:si.SortingAnalyzer = row['sa']
-        qm_ext = sa.compute('quality_metrics', skip_pc_metrics=False, **constants.FAST_JOB_KWARGS)
+        # qm_ext = sa.compute('quality_metrics', skip_pc_metrics=False, **constants.FAST_JOB_KWARGS)
+        qm_ext = sa.compute('quality_metrics', skip_pc_metrics=False)
         metrics = qm_ext.get_data()
         for col in metrics.columns:
             row[col] = metrics[col]
         return row
     
-    def compute_template_metrics(self, in_place=True, df=None):
-        df = self.df_all_units if df is None else df
-        df = df.apply(self.__compute_tm_row, axis=1)
-        if in_place:
-            self.df_all_units = df
-        return df
-
     def __compute_tm_row(self, row:pd.Series):
         sa:si.SortingAnalyzer = row['sa']
-        tm_ext = sa.compute('template_metrics', 
-                            include_multi_channel_metrics=True, 
-                            **constants.FAST_JOB_KWARGS)
+        # tm_ext = sa.compute('template_metrics', include_multi_channel_metrics=True, **constants.FAST_JOB_KWARGS)
+        tm_ext = sa.compute('template_metrics', include_multi_channel_metrics=True)
         metrics = tm_ext.get_data()
         for col in metrics.columns:
             row[col] = metrics[col]
@@ -454,12 +452,12 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
     
     def compute_mds_wave_features(self, n_components=4, in_place=True, df=None):
         df = self.df_all_units if df is None else df
-        df = df.apply(self.__compute_mds_wave_row, axis=1)
+        df = df.apply(self.__compute_waveform_row, axis=1)
         
         # Apply MDS
         X_waves = df['waveform']
         X_waves = np.array(X_waves.tolist())
-        dist_waves = euclidean_distances(X_waves)
+        dist_waves = euclidean_distances(X_waves) # Get L2 norm between waveforms
         mds = MDS(n_components=n_components, dissimilarity='precomputed')
         X_transform = mds.fit_transform(dist_waves)
 
@@ -470,14 +468,14 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
             self.df_all_units = df
         return df
     
-    def __compute_mds_wave_row(self, row: pd.Series):
+    def __compute_waveform_row(self, row: pd.Series):
         sa: si.SortingAnalyzer = row['sa']
         if sa is None:
             row['waveform'] = None
         else:
-            unit = row['unit']
+            unit = row['unit'] # NOTE this is still a list
             ext_tmp: si.AnalyzerExtension = sa.get_extension('templates')
-            # Kind of a hacky solution, unfortunately SA doesn't have a get_template function
+            # Workaround since SortingAnalyzer lacks a direct get_template method
             data = ext_tmp.get_data()
             extremum_ch = si.get_template_extremum_channel(sa, outputs='index')[unit]
             wave = data[unit - 1, :, extremum_ch]
@@ -485,10 +483,10 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
             row['waveform'] = wave
         return row
 
-    # NOTE run this after quality or template metrics
     def explode_dataframe(self, in_place=True, df=None):
-        # explodecols = ExperimentFeatureExtractor.TEMPLATE_METRIC_FEATURES + \
-        #     ExperimentFeatureExtractor.QUALITY_METRIC_FEATURES + ['unit']
+        """
+        Run this after quality or template metrics.
+        """
         df = self.df_all_units if df is None else df
         explodecols = df.columns.difference(self.DO_NOT_EXPLODE_FEATURES, sort=False)
         explodecols = [x for x in explodecols if x in df.columns]
@@ -514,6 +512,7 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
                         only_get_cols: list[str]=None,
                         only_get_cols_substr: list[str]=None,
                         plot_rejects:bool = True,
+                        y_bound:list[int] = [-200, 100],
                         in_place=True, df: pd.DataFrame=None):
         
         df = self.df_all_units if df is None else df
@@ -555,16 +554,16 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
 
             if plot_rejects and n_new_reject > 0:
                 sas = df.loc[df['reject'] != prev_reject]
-                fig, ax = plt.subplots(1, n_new_reject, figsize=(n_new_reject * 1.5, 1.5), squeeze=False)
+                fig, ax = plt.subplots(1, n_new_reject, figsize=(n_new_reject * 1.5, 1.5), squeeze=False, sharey=True)
                 for i, (index, row) in enumerate(sas.iterrows()):
                     sw.plot_unit_waveforms_density_map(row['sa'], use_max_channel=True, unit_ids=[row['unit']], ax=ax[0, i])
                     ax[0, i].set_facecolor('black')
                     ax[0, i].set_ylabel('')
                     ax[0, i].set_title(f"{row['id']} {row['region']} #{row['unit']}")
-                    ax[0, i].text(0.05, 0.05, f"n={row['num_spikes']} / {round(row['num_spikes']/row['sa'].get_total_duration(), 2)} Hz", 
+                    ax[0, i].text(0.05, 0.05, f"n={row['num_spikes']} / {round(row['num_spikes']/row['rec_duration'], 2)} Hz", 
                             transform=ax[0, i].transAxes, 
                             ha='left', va='bottom', c='xkcd:orange', fontsize='small', fontweight='bold')
-                    # ax[i].set_ybound(ybound_heatmap[0], ybound_heatmap[1])
+                    ax[i].set_ybound(y_bound)
                 fig.suptitle(col, y=1.25)
             
         if in_place:
@@ -616,7 +615,7 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
 
 
 
-# In[8]:
+# In[29]:
 
 
 class ExperimentPlotter(core.IAnimalAnalyzer, IExperimentAnalyzer):
@@ -715,8 +714,7 @@ class ExperimentPlotter(core.IAnimalAnalyzer, IExperimentAnalyzer):
         axes[0, 0].set_ylim(-20, 20)
         for i, (index, row) in enumerate(df.iterrows()):
             ax = axes[i // n_col, i % n_col]
-            sa: si.SortingAnalyzer = row['sa']
-            sw.plot_unit_waveforms(sa,
+            sw.plot_unit_waveforms(row['sa'],
                                     unit_ids=[row['unit']],
                                     templates_percentile_shading=None,
                                     alpha_waveforms=0.1,
@@ -728,7 +726,7 @@ class ExperimentPlotter(core.IAnimalAnalyzer, IExperimentAnalyzer):
             if row['reject']:
                 ax.set_facecolor('xkcd:red orange')
             ax.set_title(f"{row['id']} {row['region']} #{row['unit']}")
-            ax.text(0.05, 0.05, f"n={row['num_spikes']} / {round(row['num_spikes']/sa.get_total_duration(), 2)} Hz", 
+            ax.text(0.05, 0.05, f"n={row['num_spikes']} / {round(row['num_spikes']/row['rec_duration'], 2)} Hz", 
                     transform=ax.transAxes, 
                     ha='left', va='bottom', c='black', fontsize='small', fontweight='bold')
         fig.suptitle(f"Cluster {df.name} waveforms", y=1.05, fontsize='xx-large')

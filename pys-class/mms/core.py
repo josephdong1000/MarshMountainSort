@@ -9,7 +9,7 @@
 
 # ## Setup
 
-# In[28]:
+# In[23]:
 
 
 # Python standard library
@@ -68,7 +68,7 @@ from mms import constants
 
 # ## Code
 
-# In[29]:
+# In[24]:
 
 
 def set_tempdir(path:str):
@@ -77,7 +77,7 @@ def set_tempdir(path:str):
 # tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
 
 
-# In[31]:
+# In[26]:
 
 
 class TetrodeMetadata:
@@ -103,7 +103,7 @@ class TetrodeMetadata:
         self.n_channels = n_channels
 
 
-# In[32]:
+# In[27]:
 
 
 class PyEEGMetadata:
@@ -157,7 +157,7 @@ class PyEEGMetadata:
         return units_to_mult[current_units] / units_to_mult[target_units]
 
 
-# In[34]:
+# In[29]:
 
 
 # Preprocess recording for sorting
@@ -237,7 +237,7 @@ def _prep_rec_waveforms(recording: si.BaseRecording, metadata: TetrodeMetadata):
     return rec_prep
 
 
-# In[35]:
+# In[30]:
 
 
 class HiddenPrints:
@@ -255,7 +255,7 @@ class HiddenPrints:
             sys.stdout = self._original_stdout
 
 
-# In[36]:
+# In[31]:
 
 
 def _move_PyEEG_bin_meta_into_subfolders(datadir:Path, suffix_delimiter='_'):
@@ -275,7 +275,7 @@ def _move_PyEEG_bin_meta_into_subfolders(datadir:Path, suffix_delimiter='_'):
 _move_PyEEG_bin_meta_into_subfolders(Path('/mnt/isilon/marsh_single_unit/MarshMountainSort/pyeegbins/'))
 
 
-# In[37]:
+# In[32]:
 
 
 class ILongReader(ABC):
@@ -315,7 +315,7 @@ class ILongReader(ABC):
     
 
 
-# In[38]:
+# In[33]:
 
 
 class LongBinaryReader(ILongReader):
@@ -358,7 +358,7 @@ class LongBinaryReader(ILongReader):
         return rec
 
 
-# In[14]:
+# In[34]:
 
 
 class LongPyEEGReader(ILongReader):
@@ -425,7 +425,7 @@ class LongPyEEGReader(ILongReader):
     
 
 
-# In[15]:
+# In[35]:
 
 
 class LongIntanReader(ILongReader):
@@ -491,7 +491,7 @@ class LongIntanReader(ILongReader):
     
 
 
-# In[16]:
+# In[36]:
 
 
 class IAnimalAnalyzer(ABC):
@@ -526,7 +526,7 @@ class IAnimalAnalyzer(ABC):
     
 
 
-# In[17]:
+# In[37]:
 
 
 class AnimalSorter(IAnimalAnalyzer):
@@ -640,7 +640,7 @@ class AnimalSorter(IAnimalAnalyzer):
 
 
 
-# In[18]:
+# In[38]:
 
 
 class AnimalSortLoader(IAnimalAnalyzer):
@@ -690,9 +690,6 @@ class AnimalSortLoader(IAnimalAnalyzer):
             return None
         rec = spre.resample(rec, constants.GLOBAL_F_S) # Upsample/downsample recording to global sampling frequency
         
-        # sa = si.create_sorting_analyzer(sorting=sort, recording=rec, format='memory', sparse=False)
-        # temp_dir = Path(tempfile.gettempdir()) / os.urandom(24).hex()
-        # os.makedirs(temp_dir)
         sa = si.create_sorting_analyzer(sorting=sort, 
                                         recording=rec, 
                                         format='memory', 
@@ -937,6 +934,7 @@ class AnimalSortLoader(IAnimalAnalyzer):
         if rec is None:
             warnings.warn("Recording is None")
             return None
+        rec = spre.resample(rec, constants.GLOBAL_F_S) # Resample recording to match global sampling frequency
         
         return si.create_sorting_analyzer(sorting=sort, 
                                           recording=rec, 

@@ -7,7 +7,7 @@
 # 
 # Run after executing core modules. Will pull information from cached sorting and recording files in `sortings/`
 
-# In[23]:
+# In[ ]:
 
 
 # Python standard library
@@ -18,15 +18,17 @@ import gzip
 import os
 import re
 import shutil
+import tempfile
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from functools import reduce
+from multiprocessing import Pool
 from pathlib import Path
 from textwrap import wrap
 from typing import Literal
 from warnings import warn, catch_warnings, simplefilter, filterwarnings
-from multiprocessing import Pool
-import tempfile
+from tqdm.auto import tqdm as tqdmauto
+from tqdm.dask import TqdmCallback
 
 # Third party packages
 import dateutil.parser as dparser
@@ -49,15 +51,19 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import MDS
 from sklearn.metrics.pairwise import euclidean_distances, manhattan_distances
 from sklearn.preprocessing import StandardScaler
-from statannotations.Annotator import Annotator
+# from statannotations.Annotator import Annotator
 from pandarallel import pandarallel
+import dask
+from dask import delayed
+from dask.distributed import Client
+from dask.diagnostics import ProgressBar
 
 # Local imports
 from mms import constants, core
 from mms.parser import FolderPathParser
 
 
-# In[5]:
+# In[6]:
 
 
 class DepthSheetReader():
@@ -271,7 +277,7 @@ class DepthSheetReader():
     
 
 
-# In[7]:
+# In[8]:
 
 
 class IExperimentAnalyzer(ABC):
@@ -361,29 +367,48 @@ class IExperimentAnalyzer(ABC):
         return df
 
 
-# In[28]:
+# In[1]:
 
 
 class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
 
     def __init__(self, base_folder: str, dsr:DepthSheetReader, sortdir_name: str = 'sortings', 
-                 truncate: bool = False, verbose: bool = True, omit: list[str] = ...,
-                 **kwargs) -> None:
-        
-        super().__init__(base_folder, '', '', sortdir_name, truncate, verbose, omit)
+                 truncate: bool | int = False, verbose: bool = True, omit: list[str] = ...,
+                 multiprocess: bool = True, ignore_warnings:bool=True, **kwargs):
+        super().__init__(base_folder, '', '', sortdir_name, bool(truncate), verbose, omit)
         self._dsr = dsr
         self.__filename_to_depth_df = self._dsr.read_filenametodepth_xlsx()
         self.__animal_to_best_depth_df = self._dsr.read_animaltobestdepth_xlsx()
-
-        self.df_all_units = self.__animal_to_best_depth_df.copy()
+        self.ignore_warnings = ignore_warnings
+        self.df_all_units: pd.DataFrame = self.__animal_to_best_depth_df.copy()
         if truncate:
-            self.df_all_units = self.df_all_units.sample(3, random_state=42)
+            if type(truncate) is int:
+                self.df_all_units = self.df_all_units.sample(truncate, random_state=43)
+            else:
+                self.df_all_units = self.df_all_units.sample(3, random_state=42)
 
         # Process rows in parallel using multiprocessing
-        with Pool(processes=constants.FAST_JOB_KWARGS['n_jobs']) as pool:
-            row_data = self.df_all_units.to_dict('records')
-            results = pool.map(self._init_process_row_no_sa, row_data)
-        results = [x for x in results if x is not None]
+        if multiprocess:
+            # row_data = self.df_all_units.to_dict('records')
+            # with Pool(processes=n_workers) as pool:
+            #     # tqdm.__init__ = partialmethod(tqdm.__init__, leave=False) # REVIEW testing
+            #     results = list(tqdmauto(
+            #         pool.imap_unordered(self._init_process_row_no_sa, row_data, chunksize=chunksize),
+            #         total=len(row_data),
+            #         desc="Processing rows"
+            #     ))
+
+            # pandarallel.initialize(progress_bar=True)
+            # results = self.df_all_units.parallel_apply(self._init_process_row_no_sa, axis=1)
+
+            delayed_tasks = [delayed(self._init_process_row_no_sa)(row) for row in self.df_all_units.to_dict('records')]
+            with TqdmCallback(desc='Processing rows'):
+                results = dask.compute(*delayed_tasks)
+
+        else:
+            results = self.df_all_units.apply(self._init_process_row_no_sa, axis=1).to_dict('records')
+
+        results = [x for x in results if x is not None] # remove rows with None sorting analyzers
         self.df_all_units = pd.DataFrame(results)
 
         # Load sorting analyzers from file
@@ -391,6 +416,8 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
 
     def _init_process_row_no_sa(self, row:dict):
         row: pd.Series = pd.Series(row)
+        if self.verbose:
+            print(f"Loading recording: {row['id']} {row['region']} {row['best_depth']} {row['name']}\n")
         folderpath = DepthSheetReader.get_row_from_depth_df(identifier=row['id'],
                                                             region=row['region'],
                                                             depth=row['best_depth'],
@@ -407,30 +434,24 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
         row['unit'] = list(range(1, row['sa'].get_num_units() + 1))
         row['rec_duration'] = row['sa'].get_total_duration()
         
-        with catch_warnings(): # REVIEW why arent there 4 concurrent processes?
-            # simplefilter('ignore')
-            filterwarnings('ignore', message='With less than 10 channels, multi-channel metrics might not be reliable.')
-            filterwarnings('ignore', message='`n_jobs` is not set so parallel processing is disabled!')
+        with catch_warnings():
+            if self.ignore_warnings:
+                filterwarnings('ignore')
+            else:
+                filterwarnings('ignore', message='With less than 10 channels, multi-channel metrics might not be reliable.')
+                filterwarnings('ignore', message='`n_jobs` is not set so parallel processing is disabled!')
             
             for k, ext_kwargs in ExperimentFeatureExtractor.EXTENSION_PARAMS.items():
-                # sa.compute_one_extension(k, **(ext_kwargs | kwargs))
                 sa.compute_one_extension(k, **(ext_kwargs))
-            
+
             row = self.__compute_qm_row(row)
             row = self.__compute_tm_row(row)
             
         row = row.apply(lambda x: x.tolist() if isinstance(x, pd.Series) else x)
         sa.save_as(format='zarr', folder=row['sa_savedir'] / 'result.zarr')
         row.drop('sa', inplace=True)
-        
+
         return row
-    
-    # def remove_no_sa_rows(self, in_place=True, df=None):
-    #     df = self.df_all_units if df is None else df
-    #     df = df.dropna(subset=['sa'])
-    #     if in_place:
-    #         self.df_all_units = df
-    #     return df
 
     def __compute_qm_row(self, row: pd.Series):
         sa:si.SortingAnalyzer = row['sa']
@@ -563,7 +584,7 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
                     ax[0, i].text(0.05, 0.05, f"n={row['num_spikes']} / {round(row['num_spikes']/row['rec_duration'], 2)} Hz", 
                             transform=ax[0, i].transAxes, 
                             ha='left', va='bottom', c='xkcd:orange', fontsize='small', fontweight='bold')
-                    ax[i].set_ybound(y_bound)
+                    ax[0, i].set_ybound(y_bound)
                 fig.suptitle(col, y=1.25)
             
         if in_place:
@@ -615,7 +636,7 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
 
 
 
-# In[29]:
+# In[10]:
 
 
 class ExperimentPlotter(core.IAnimalAnalyzer, IExperimentAnalyzer):

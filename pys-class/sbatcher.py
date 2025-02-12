@@ -42,7 +42,22 @@ def main():
         # "--id 579-580 --datadir rhds --intanport B -aI A B -o 'overnight 1-17-25'",
         # "--id 619-613 --datadir rhds --intanport A -aI A B",
         # "--id 619-613 --datadir rhds --intanport B -aI A B",
-        
+
+        # NOTE convert old sortings (Markus, Donald)
+        *[f"--mode convert --sortdir recordings-raw --id {id} --datadir pyeegbins" for id in [
+            766, 1131, 1132, 1133, 1155, 1158, 1176, 1177, 1178, 1185,
+            1203, 1211, 1214, 1225, 1226, 1227, 1231, 1233, 1234, 1236,
+            1238, 1244
+        ]],
+        "--mode convert --sortdir recordings-raw --id 1269 --datadir pyeegbins -o '12 hour recording'",
+        # # NOTE convert new sortings (Joseph)
+        *[f"--mode convert --sortdir recordings-raw --id {id} --datadir rhds --intanport {port} -aI A B" for id in [
+            "501-502", "513-514", "529-530", "556-557", "579-580", "619-613"
+        ] for port in ["A", "B"]],
+        "--mode convert --sortdir recordings-raw --id 537 --datadir rhds",
+
+
+
         # NOTE sortings to depthplots
         # "--mode depth --id 766",
         # "--mode depth --id 1131",
@@ -66,7 +81,7 @@ def main():
         # "--mode depth --id 1236",
         # "--mode depth --id 1238",
         # "--mode depth --id 1244",
-        "--mode depth --id 1269", # TODO retry
+        # "--mode depth --id 1269", # TODO retry
         # "--mode depth --id 501",
         # "--mode depth --id 502",
         # "--mode depth --id 513",

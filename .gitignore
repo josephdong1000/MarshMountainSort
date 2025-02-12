@@ -1,9 +1,11 @@
 /*bins/*
 /output*/*
+*/output*/*
 /rawtxts/*
 /rhds/*
 /slurms/*
 /sortings/*
+/recordings-raw/*
 /vids/*
 /.*/
 /slurm-*

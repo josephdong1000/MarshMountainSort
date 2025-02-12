@@ -7,7 +7,7 @@
 # 
 # Run after executing core modules. Will pull information from cached sorting and recording files in `sortings/`
 
-# In[ ]:
+# In[3]:
 
 
 # Python standard library
@@ -33,12 +33,14 @@ from tqdm.dask import TqdmCallback
 # Third party packages
 import dateutil.parser as dparser
 import matplotlib.pyplot as plt
+import matplotlib.colors
 import mountainsort5 as ms5
 import numpy as np
 import pandas as pd
 import scipy.cluster.hierarchy as shc
 import seaborn as sns
 import spikeinterface.core as si
+import spikeinterface.preprocessing as spre
 import spikeinterface.extractors as se
 import spikeinterface.postprocessing as spost
 import spikeinterface.qualitymetrics as sqm
@@ -46,24 +48,28 @@ import spikeinterface.widgets as sw
 from mountainsort5.util import create_cached_recording
 from scipy.optimize import curve_fit
 from scipy.signal import convolve, savgol_coeffs, savgol_filter, windows
-from scipy.stats import norm, skewnorm, zscore
+from scipy.stats import norm, skewnorm, zscore, ttest_ind
 from sklearn.decomposition import PCA
 from sklearn.manifold import MDS
 from sklearn.metrics.pairwise import euclidean_distances, manhattan_distances
 from sklearn.preprocessing import StandardScaler
-# from statannotations.Annotator import Annotator
 from pandarallel import pandarallel
 import dask
 from dask import delayed
 from dask.distributed import Client
 from dask.diagnostics import ProgressBar
+from statannotations.Annotator import Annotator
+from IPython.display import clear_output
+import umap
+import mne
+import matplotlib.colors as colors
 
 # Local imports
 from mms import constants, core
 from mms.parser import FolderPathParser
 
 
-# In[6]:
+# In[5]:
 
 
 class DepthSheetReader():
@@ -277,7 +283,7 @@ class DepthSheetReader():
     
 
 
-# In[8]:
+# In[6]:
 
 
 class IExperimentAnalyzer(ABC):
@@ -367,49 +373,40 @@ class IExperimentAnalyzer(ABC):
         return df
 
 
-# In[1]:
+# In[7]:
 
 
 class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
 
     def __init__(self, base_folder: str, dsr:DepthSheetReader, sortdir_name: str = 'sortings', 
-                 truncate: bool | int = False, verbose: bool = True, omit: list[str] = ...,
+                 truncate: bool | int = False, verbose: bool = True, omit_id:list[int] = [],
                  multiprocess: bool = True, ignore_warnings:bool=True, **kwargs):
-        super().__init__(base_folder, '', '', sortdir_name, bool(truncate), verbose, omit)
+        super().__init__(base_folder, '', '', sortdir_name, bool(truncate), verbose, [])
         self._dsr = dsr
         self.__filename_to_depth_df = self._dsr.read_filenametodepth_xlsx()
         self.__animal_to_best_depth_df = self._dsr.read_animaltobestdepth_xlsx()
         self.ignore_warnings = ignore_warnings
+        self.omit_id = omit_id
         self.df_all_units: pd.DataFrame = self.__animal_to_best_depth_df.copy()
+        self.df_all_units = self.df_all_units[~self.df_all_units['id'].isin(self.omit_id)]
         if truncate:
             if type(truncate) is int:
                 self.df_all_units = self.df_all_units.sample(truncate, random_state=43)
             else:
-                self.df_all_units = self.df_all_units.sample(3, random_state=42)
+                self.df_all_units = self.df_all_units.sample(3, random_state=43)
 
         # Process rows in parallel using multiprocessing
         if multiprocess:
-            # row_data = self.df_all_units.to_dict('records')
-            # with Pool(processes=n_workers) as pool:
-            #     # tqdm.__init__ = partialmethod(tqdm.__init__, leave=False) # REVIEW testing
-            #     results = list(tqdmauto(
-            #         pool.imap_unordered(self._init_process_row_no_sa, row_data, chunksize=chunksize),
-            #         total=len(row_data),
-            #         desc="Processing rows"
-            #     ))
-
-            # pandarallel.initialize(progress_bar=True)
-            # results = self.df_all_units.parallel_apply(self._init_process_row_no_sa, axis=1)
-
-            delayed_tasks = [delayed(self._init_process_row_no_sa)(row) for row in self.df_all_units.to_dict('records')]
+            delayed_tasks = [delayed(self._init_process_row_no_sa)(row) for row in self.df_all_units.to_dict(orient='records')]
             with TqdmCallback(desc='Processing rows'):
                 results = dask.compute(*delayed_tasks)
-
         else:
-            results = self.df_all_units.apply(self._init_process_row_no_sa, axis=1).to_dict('records')
+            results = self.df_all_units.apply(self._init_process_row_no_sa, axis=1)
+            results = results.to_dict(orient='records')
 
-        results = [x for x in results if x is not None] # remove rows with None sorting analyzers
-        self.df_all_units = pd.DataFrame(results)
+        results = pd.DataFrame(results)
+        results = results.dropna(how='all')
+        self.df_all_units = results
 
         # Load sorting analyzers from file
         self.df_all_units['sa'] = self.df_all_units['sa_savedir'].apply(lambda x: si.load_sorting_analyzer(x / 'result.zarr', format='zarr'))
@@ -417,14 +414,14 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
     def _init_process_row_no_sa(self, row:dict):
         row: pd.Series = pd.Series(row)
         if self.verbose:
-            print(f"Loading recording: {row['id']} {row['region']} {row['best_depth']} {row['name']}\n")
+            print(f"Loading recording: {row['id']} {row['region']} {row['best_depth']} {row['name']}\n", flush=True)
         folderpath = DepthSheetReader.get_row_from_depth_df(identifier=row['id'],
                                                             region=row['region'],
                                                             depth=row['best_depth'],
                                                             name=row['name']).folder
         sa = core.AnimalSortLoader.load_sortinganalyzer(folderpath, region=row['region'])
         if sa is None:
-            return None
+            return pd.Series([])
 
         temp_dir = Path(tempfile.gettempdir()) / os.urandom(24).hex()
         os.makedirs(temp_dir)
@@ -455,7 +452,6 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
 
     def __compute_qm_row(self, row: pd.Series):
         sa:si.SortingAnalyzer = row['sa']
-        # qm_ext = sa.compute('quality_metrics', skip_pc_metrics=False, **constants.FAST_JOB_KWARGS)
         qm_ext = sa.compute('quality_metrics', skip_pc_metrics=False)
         metrics = qm_ext.get_data()
         for col in metrics.columns:
@@ -464,7 +460,6 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
     
     def __compute_tm_row(self, row:pd.Series):
         sa:si.SortingAnalyzer = row['sa']
-        # tm_ext = sa.compute('template_metrics', include_multi_channel_metrics=True, **constants.FAST_JOB_KWARGS)
         tm_ext = sa.compute('template_metrics', include_multi_channel_metrics=True)
         metrics = tm_ext.get_data()
         for col in metrics.columns:
@@ -605,6 +600,7 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
 
         df2 = df.drop(df.columns.difference(features), axis=1, errors='ignore')
         df2 = df2.dropna(axis=0, subset=df2.columns.difference(self.DO_NOT_EXPLODE_FEATURES))
+
         if reject_outliers:
             if 'reject' in df2.columns:
                 df2 = df2[~df2['reject']]
@@ -636,7 +632,7 @@ class ExperimentFeatureExtractor(core.IAnimalAnalyzer, IExperimentAnalyzer):
 
 
 
-# In[10]:
+# In[8]:
 
 
 class ExperimentPlotter(core.IAnimalAnalyzer, IExperimentAnalyzer):
@@ -699,6 +695,22 @@ class ExperimentPlotter(core.IAnimalAnalyzer, IExperimentAnalyzer):
         self.__aggregate_and_show_legend(ax)
 
         plt.title('MDS Plot')
+        plt.show()
+
+    def plot_umap(self, features:list[str]=None, random_state:int=None):
+        df_umap, cluster_ids, colorvec = self.__get_clusterdf_clusterids_colorvec()
+
+        df_umap = StandardScaler().fit_transform(df_umap)
+        umap_model = umap.UMAP(random_state=random_state)
+        X_transform = umap_model.fit_transform(df_umap)
+
+        fig, ax = plt.subplots(1, 1)
+        for i in range(X_transform.shape[0]):
+            ax.scatter(X_transform[i, 0], X_transform[i, 1], c=colorvec[i], label=f'Cluster {cluster_ids[i]}')
+
+        self.__aggregate_and_show_legend(ax)
+
+        plt.title('UMAP Plot')
         plt.show()
 
     def plot_mds_waveforms(self, features:list[str]=None, width=2, height_mult=0.1, random_state:int=None):
@@ -771,12 +783,75 @@ class ExperimentPlotter(core.IAnimalAnalyzer, IExperimentAnalyzer):
     
 
 
-# ## Calculate Spike Statistics
+# In[23]:
 
-# ## Calculate Unit Quality Metrics
 
-# ## Remove Low Quality Units
+def random_subsample_epochs(epochs, max_epochs=1000):
+    if len(epochs) > max_epochs:
+        # Get random indices for subsampling
+        indices = np.random.choice(len(epochs), size=max_epochs, replace=False)
+        epochs = epochs[indices]
+    return epochs
 
-# ## Visualize All High Quality Units
 
-# ## Plot Spike Statistics
+# In[26]:
+
+
+# REVIEW since there isn't a good way to divide spike power by a random sample, 
+# I'm doing it manually here
+
+# tfr_spike.get_data().mean(axis=0).shape
+
+def plot_tfr_ratio(tfr_spike: mne.time_frequency.EpochsTFR, 
+                   tfr_baseline: mne.time_frequency.EpochsTFR):    
+    pow_baseline = np.median(tfr_baseline.get_data(), axis=[0, 2])
+    pow_baseline = pow_baseline[:, np.newaxis]
+    pow_spike, plot_t, plot_f = tfr_spike.get_data(return_times=True, return_freqs=True)
+    pow_spike = np.median(pow_spike, axis=0)
+    pow_ratio = pow_spike / pow_baseline
+    pow_ratio.shape
+    fig, ax = plt.subplots(1, 1, figsize=(7, 4))
+    ax.imshow(pow_ratio, aspect='auto',
+            extent=[plot_t[0], plot_t[-1], plot_f[0], plot_f[-1]],
+            origin='lower',
+            cmap=plt.cm.RdBu_r,  # Red-Blue diverging colormap
+            norm=colors.TwoSlopeNorm(vmin=0.5, vcenter=1, vmax=10))  # Split at 1
+    ax.set_xlabel('Time (s)')
+    ax.set_ylabel('Frequency (Hz)')
+    ax.axvline(0, color='black', linestyle='--')
+    plt.colorbar(ax.images[0], ax=ax, label='Power Ratio (spike/baseline)')
+    plt.show()
+
+
+# In[26]:
+
+
+# # sa_gcg1 = df[df['id'] == 613][['region', 'sa']]
+# sa_gcg1 = df[df['id'] == 613]
+# sa_gcg1 = sa_gcg1.groupby('sa_savedir').agg({'sa': 'first', 'region': 'first', 'id': 'first'})
+# display(sa_gcg1)
+
+# for i in range(len(sa_gcg1)):
+#     fig, ax = plt.subplots(2, 1, figsize=(8,4), sharex=True, gridspec_kw={'height_ratios':[1, 0.3]})
+#     plt.subplots_adjust(hspace=0) 
+
+#     sw.plot_traces(sa_gcg1.iloc[i]['sa'].recording,
+#                    time_range=[0, 5], 
+#                    show_channel_ids=True,
+#                    # color_groups=True,
+#                    # color='C0',
+#                    ax=ax[0],
+#                   )
+#     # ax[0].set_ylabel("Datawave Channel")
+#     # ax[0].get_legend().remove()
+#     sw.plot_rasters(sa_gcg1.iloc[i]['sa'], 
+#                     time_range=[0, 5],
+#                     color='black',
+#                     ax=ax[1],
+#                    )
+#     ax[1].set_ylabel("Unit Index")
+#     ax[1].set_xlabel("Time (s)")
+#     fig.suptitle(f"Raster Plot {sa_gcg1.iloc[i]['id']} {sa_gcg1.iloc[i]['region']}", y=0.95)
+
+#     plt.show()
+

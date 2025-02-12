@@ -9,7 +9,7 @@
 
 # ## Setup
 
-# In[23]:
+# In[19]:
 
 
 # Python standard library
@@ -68,7 +68,7 @@ from mms import constants
 
 # ## Code
 
-# In[24]:
+# In[20]:
 
 
 def set_tempdir(path:str):
@@ -77,7 +77,7 @@ def set_tempdir(path:str):
 # tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
 
 
-# In[26]:
+# In[22]:
 
 
 class TetrodeMetadata:
@@ -103,7 +103,7 @@ class TetrodeMetadata:
         self.n_channels = n_channels
 
 
-# In[27]:
+# In[23]:
 
 
 class PyEEGMetadata:
@@ -157,7 +157,7 @@ class PyEEGMetadata:
         return units_to_mult[current_units] / units_to_mult[target_units]
 
 
-# In[29]:
+# In[25]:
 
 
 # Preprocess recording for sorting
@@ -185,10 +185,11 @@ def _prep_rec_sorting(recording: si.BaseRecording, metadata: TetrodeMetadata):
     # rec_prep = spre.bandpass_filter(rec_prep, freq_min=metadata.bandpass[0], freq_max=metadata.bandpass[1], ftype='butter')
 
     # Experimental IBL destriping-like preprocessing
-    rec_prep = recording.clone()
+    rec_prep: si.BaseRecording = recording.clone()
     
     # Basic preprocessing
-    rec_prep = spre.resample(rec_prep, resample_rate=constants.GLOBAL_F_S)
+    if rec_prep.get_sampling_frequency() != constants.GLOBAL_F_S:
+        rec_prep = spre.resample(rec_prep, resample_rate=constants.GLOBAL_F_S)
     rec_prep = spre.notch_filter(rec_prep, freq=60, q=30)  # Get rid of mains hum
     # rec_prep = spre.highpass_filter(rec_prep, freq_min=metadata.bandpass[0])
     rec_prep = spre.bandpass_filter(rec_prep, 
@@ -236,8 +237,22 @@ def _prep_rec_waveforms(recording: si.BaseRecording, metadata: TetrodeMetadata):
     
     return rec_prep
 
+def _prep_rec_raw(recording: si.BaseRecording):
+    """Minimally preprocess recording for analysis that uses low frequencies e.g. LFPs
 
-# In[30]:
+    Args:
+        recording (si.BaseRecording): Raw recording
+    
+    Returns:
+        Preprocessed recording resampled to GLOBAL_F_S
+    """
+    rec_prep = recording.clone()
+    if rec_prep.get_sampling_frequency() != constants.GLOBAL_F_S:
+        rec_prep = spre.resample(rec_prep, resample_rate=constants.GLOBAL_F_S)
+    return rec_prep
+
+
+# In[26]:
 
 
 class HiddenPrints:
@@ -255,7 +270,7 @@ class HiddenPrints:
             sys.stdout = self._original_stdout
 
 
-# In[31]:
+# In[27]:
 
 
 def _move_PyEEG_bin_meta_into_subfolders(datadir:Path, suffix_delimiter='_'):
@@ -275,7 +290,7 @@ def _move_PyEEG_bin_meta_into_subfolders(datadir:Path, suffix_delimiter='_'):
 _move_PyEEG_bin_meta_into_subfolders(Path('/mnt/isilon/marsh_single_unit/MarshMountainSort/pyeegbins/'))
 
 
-# In[32]:
+# In[28]:
 
 
 class ILongReader(ABC):
@@ -315,7 +330,7 @@ class ILongReader(ABC):
     
 
 
-# In[33]:
+# In[29]:
 
 
 class LongBinaryReader(ILongReader):
@@ -358,7 +373,7 @@ class LongBinaryReader(ILongReader):
         return rec
 
 
-# In[34]:
+# In[30]:
 
 
 class LongPyEEGReader(ILongReader):
@@ -425,7 +440,7 @@ class LongPyEEGReader(ILongReader):
     
 
 
-# In[35]:
+# In[31]:
 
 
 class LongIntanReader(ILongReader):
@@ -491,7 +506,7 @@ class LongIntanReader(ILongReader):
     
 
 
-# In[36]:
+# In[32]:
 
 
 class IAnimalAnalyzer(ABC):
@@ -526,7 +541,7 @@ class IAnimalAnalyzer(ABC):
     
 
 
-# In[37]:
+# In[33]:
 
 
 class AnimalSorter(IAnimalAnalyzer):
@@ -589,7 +604,9 @@ class AnimalSorter(IAnimalAnalyzer):
         shutil.rmtree(path, ignore_errors=True)
     
     def sort_all(self, **kwargs):
-        
+        """
+        Sort all data in the datadir_subfolders, and save SortingAnalyzers to the sortdir_subfolders
+        """
         for i, row in self.df_readers.iterrows():
             temp_dir = Path(tempfile.gettempdir()) / os.urandom(24).hex()
             os.makedirs(temp_dir)
@@ -635,12 +652,78 @@ class AnimalSorter(IAnimalAnalyzer):
         sort_subfolder = self.sort_folder / reader.data_folder_name / region
         os.makedirs(sort_subfolder, exist_ok=True)
         with HiddenPrints(silence=True):
-            se.NpzSortingExtractor.write_sorting(sorting=sorting, save_path=sort_subfolder / sort_name) # sort.npz
-            recording.save_to_folder(folder=sort_subfolder / rec_name, overwrite=True) # rec folder
+            if sorting is not None:
+                se.NpzSortingExtractor.write_sorting(sorting=sorting, save_path=sort_subfolder / sort_name) # sort.npz
+            if recording is not None:
+                recording.save_to_folder(folder=sort_subfolder / rec_name, overwrite=True) # rec folder
+
+    def save_all(self, **kwargs):
+        """
+        Without sorting, save Recordings to the sortdir_subfolders
+        """
+        for i, row in self.df_readers.iterrows():
+
+            reader:ILongReader = row['reader']
+            
+            for region in constants.REGIONS:
+                if self.verbose:
+                    print(f"[{i+1}/{len(self.datadir_subfolders)}] Loading data: ({region}) {reader.data_folder_name}..")
+                
+                recording = reader.load_region(region_name=region) # Load recording for saving
+                if recording is None:
+                    print(f"Missing region {region}, skipping")
+                    continue
+
+                recording = _prep_rec_raw(recording)
+
+                if self.verbose:
+                    print(f"[{i+1}/{len(self.datadir_subfolders)}] Saving..")
+                with warnings.catch_warnings():
+                    warnings.filterwarnings('ignore', message='^.*parallel processing is disabled.*$')
+                    self._save_sorting(sorting=None, recording=recording, 
+                                    reader=reader, region=region) # Save sorting
+                
 
 
+# In[ ]:
 
-# In[38]:
+
+class AnimalRawRecordingLoader(IAnimalAnalyzer):
+    def __init__(self, base_folder: str, identifier: str, sortdir_name: str = 'sortings', 
+                 truncate: bool = False, verbose: bool = True, omit: list[str]=[]) -> None:
+        super().__init__(base_folder, identifier, '', sortdir_name, truncate, verbose, omit)
+        self.sortdir_subfolders = self._glob_folders(sortdir_name)
+        if len(self.sortdir_subfolders) == 0:
+            raise ValueError('No sortings found')
+        self.df_recs:pd.DataFrame = None
+    
+    # Load in all sortings and recordings in the sortings folder
+    def load_sortings_df(self):
+        out = []
+        for subfolder in self.sortdir_subfolders:
+            for region in constants.REGIONS:
+                out.append({
+                    'folderpath' : subfolder,
+                    'foldername' : Path(subfolder).name,
+                    'rec' : AnimalRawRecordingLoader.load_recording(subfolder, region=region),
+                    'region' : region
+                })
+        df = pd.DataFrame(out)
+        self.df_recs = df
+        return df
+    
+    @staticmethod
+    def load_recording(sort_subfolder_abspath:str, region:str, rec_name='rec'):
+        rec_path = Path(sort_subfolder_abspath) / region / rec_name
+        if os.path.exists(rec_path):
+            return si.load_extractor(rec_path)
+        else:
+            warnings.warn(f"Does not exist: {rec_path}")
+            return None
+    
+
+
+# In[18]:
 
 
 class AnimalSortLoader(IAnimalAnalyzer):

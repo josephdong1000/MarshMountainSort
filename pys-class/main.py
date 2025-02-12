@@ -34,6 +34,20 @@ def main():
             )
             ao.delete_sorting_folders()
             ao.sort_all(**constants.FAST_JOB_KWARGS)
+        case 'convert':
+            ao = core.AnimalSorter(
+                args.basefolder,  
+                identifier=args.id,
+                datadir_name=args.datadir,
+                sortdir_name=args.sortdir,
+                truncate=args.truncate,
+                verbose=args.verbose,
+                omit=args.omit,
+                intan_port=args.intanport, 
+                all_intan_ports=args.allintanports
+            )
+            ao.delete_sorting_folders()
+            ao.save_all(**constants.FAST_JOB_KWARGS)
         case 'depth':
             dsr = figures.DepthSheetReader(
                 args.basefolder,
@@ -51,7 +65,6 @@ def main():
                                         location_method='monopolar_triangulation',
                                         # location_method='center_of_mass',
                                         **constants.FAST_JOB_KWARGS)
-
         case 'figure':
             pass
         case _:
@@ -67,7 +80,7 @@ def __get_parsed_args():
     parser.add_argument('-i', '--id', help="Animal identifier", required=True)
     parser.add_argument('-D', '--datadir', default='rhds', help="Directory/filetype of data, either bins or rhds", choices=['bins', 'pyeegbins', 'rhds'])
     parser.add_argument('-S', '--sortdir', default='sortings', help="Directory/filetype of sorting files")
-    parser.add_argument('-M', '--mode', help="Select mode for analysis", choices=['sort', 'depth', 'figure'], default='sort')
+    parser.add_argument('-M', '--mode', help="Select mode for analysis", choices=['sort', 'depth', 'convert', 'figure'], default='sort')
     parser.add_argument('-t', '--truncate', default=False, help="Only process the first few files. For testing only, default False")
     parser.add_argument('-v', '--verbose', default=True, help="Verbosity of script, default True")
     parser.add_argument('-o', '--omit', default=[], nargs='+', help="Substrings of filenames to omit, default empty")
